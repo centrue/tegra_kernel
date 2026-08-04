@@ -1,0 +1,28 @@
+# Kernel build artifacts
+.config
+.config.old
+Module.symvers
+modules.order
+*.o
+*.ko
+*.cmd
+*.a
+*.so
+*.mod
+*.mod.c
+*.tmp_versions
+*.symtypes
+*.order
+.*.cmd
+.tmp_*
+*.dwo
+*.su
+*.gcno
+*.gcda
+
+# Editor / OS files
+*.swp
+*~
+.DS_Store
+.vscode/
+.idea/
