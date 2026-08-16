@@ -28,7 +28,10 @@ Options:
   --clean                      Remove and recreate the selected output directory
   -h, --help                   Show this help
 
-The script never installs into Linux_for_Tegra or a target device.
+It emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
+<output>/deb/ (OUTPUT defaults to out/ov5647-MODE). The pristine NVIDIA
+packages under Linux_for_Tegra/kernel/ are used read-only as packaging
+templates and are never modified. It never flashes a device.
 EOF
 }
 
@@ -101,7 +104,7 @@ mkdir -p "$BUILD_DIR" "$META_DIR"
 
 exec > >(tee "$LOG_FILE") 2>&1
 
-for command in make bc flex bison dtc fdtoverlay fdtget depmod tar sha256sum nm xxd cmp cp; do
+for command in make bc flex bison dtc fdtoverlay fdtget depmod dpkg-deb tar sha256sum nm xxd cmp cp; do
 	command -v "$command" >/dev/null 2>&1 || die "missing host command: $command"
 done
 [[ -x "${CROSS_COMPILE}gcc" ]] || die "cross compiler not found: ${CROSS_COMPILE}gcc"
@@ -170,7 +173,10 @@ DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov5647.dtbo"
 rm -rf -- "$STAGE_DIR" "$PACKAGE_ROOT"
 mkdir -p "$STAGE_DIR" "$PACKAGE_ROOT/boot" \
 	"$PACKAGE_ROOT/lib/modules" "$PACKAGE_ROOT/metadata/source"
-make "${MAKE_ARGS[@]}" -j"$JOBS" INSTALL_MOD_PATH="$STAGE_DIR" modules_install
+# Strip debug symbols like the shipped NVIDIA modules; the tegra_defconfig
+# keeps DEBUG_INFO, so unstripped modules are ~13x larger than the official
+# nvidia-l4t-kernel package (which would bloat the target rootfs and image).
+make "${MAKE_ARGS[@]}" -j"$JOBS" INSTALL_MOD_PATH="$STAGE_DIR" INSTALL_MOD_STRIP=1 modules_install
 depmod -b "$STAGE_DIR" "$KERNEL_RELEASE"
 rm -f "$STAGE_DIR/lib/modules/$KERNEL_RELEASE/build" \
 	"$STAGE_DIR/lib/modules/$KERNEL_RELEASE/source"
@@ -313,6 +319,86 @@ ARCHIVE="$OUTPUT/jetson-nano-a02-r32.7.6-ov5647-${DRIVER_MODE}.tar.gz"
 tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
 	-C "$PACKAGE_ROOT" -czf "$ARCHIVE" boot lib metadata
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+
+echo "Repacking kernel and DTBs as container-installable L4T debs"
+L4T_KERNEL_DIR="${SCRIPT_DIR}/../Linux_for_Tegra/kernel"
+KERNEL_DEB_VERSION="4.9.337-tegra-32.7.6-20241104234540"
+OFFICIAL_KERNEL_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb"
+OFFICIAL_DTBS_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel-dtbs_${KERNEL_DEB_VERSION}_arm64.deb"
+DEB_STAGE="${OUTPUT}/deb"
+KERNEL_PAYLOAD="${DEB_STAGE}/payload/nvidia-l4t-kernel"
+DTBS_PAYLOAD="${DEB_STAGE}/payload/nvidia-l4t-kernel-dtbs"
+OUT_KERNEL_DEB="${DEB_STAGE}/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb"
+OUT_DTBS_DEB="${DEB_STAGE}/nvidia-l4t-kernel-dtbs_${KERNEL_DEB_VERSION}_arm64.deb"
+MODULES_SOFTDEP="${DEB_STAGE}/modules.softdep"
+
+[[ -f "$OFFICIAL_KERNEL_DEB" ]] || die "official kernel deb missing: $OFFICIAL_KERNEL_DEB"
+[[ -f "$OFFICIAL_DTBS_DEB" ]] || die "official dtbs deb missing: $OFFICIAL_DTBS_DEB"
+
+# The official packages are read-only templates (control, maintainer scripts,
+# and the base dtb/dtbo set). Nothing under Linux_for_Tegra/kernel is ever
+# written by this build; all repacked debs land under $OUTPUT/deb/.
+
+rm -rf "$KERNEL_PAYLOAD" "$DTBS_PAYLOAD"
+mkdir -p "$KERNEL_PAYLOAD" "$DTBS_PAYLOAD"
+dpkg-deb -x "$OFFICIAL_KERNEL_DEB" "$KERNEL_PAYLOAD"
+dpkg-deb -e "$OFFICIAL_KERNEL_DEB" "$KERNEL_PAYLOAD/DEBIAN"
+dpkg-deb -x "$OFFICIAL_DTBS_DEB" "$DTBS_PAYLOAD"
+dpkg-deb -e "$OFFICIAL_DTBS_DEB" "$DTBS_PAYLOAD/DEBIAN"
+
+# Replace the official kernel image and modules with this OV5647 build.
+if [[ -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep" ]]; then
+	install -m 0644 "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep" \
+		"$MODULES_SOFTDEP"
+fi
+rm -f "$KERNEL_PAYLOAD/boot/Image"
+rm -rf "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE"
+mkdir -p "$KERNEL_PAYLOAD/boot" "$KERNEL_PAYLOAD/lib/modules"
+install -m 0644 "$BUILD_DIR/arch/arm64/boot/Image" "$KERNEL_PAYLOAD/boot/Image"
+cp -a "$STAGE_DIR/lib/modules/$KERNEL_RELEASE" "$KERNEL_PAYLOAD/lib/modules/"
+rm -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/build" \
+	"$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/source"
+if [[ -f "$MODULES_SOFTDEP" ]]; then
+	install -m 0644 "$MODULES_SOFTDEP" \
+		"$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
+fi
+
+# Append the OV5647 Jetson-IO overlay to the official dtbs payload.
+install -m 0644 "$DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+
+# The NVIDIA md5sums no longer match the payload; let dpkg-deb regenerate them.
+rm -f "$KERNEL_PAYLOAD/DEBIAN/md5sums" "$DTBS_PAYLOAD/DEBIAN/md5sums"
+
+rm -f "$OUT_KERNEL_DEB" "$OUT_DTBS_DEB"
+# -Zxz matches the compression NVIDIA ships (gzip would make the kernel deb
+# ~5x larger for identical content).
+dpkg-deb --build -Zxz --root-owner-group "$KERNEL_PAYLOAD" "$OUT_KERNEL_DEB"
+dpkg-deb --build -Zxz --root-owner-group "$DTBS_PAYLOAD" "$OUT_DTBS_DEB"
+
+# Gate the repacked artifacts exactly like container-build.sh does.
+[[ "$(dpkg-deb -f "$OUT_KERNEL_DEB" Package)" == nvidia-l4t-kernel ]] || \
+	die "kernel deb Package mismatch"
+[[ "$(dpkg-deb -f "$OUT_KERNEL_DEB" Version)" == "$KERNEL_DEB_VERSION" ]] || \
+	die "kernel deb Version mismatch"
+[[ "$(dpkg-deb -f "$OUT_KERNEL_DEB" Architecture)" == arm64 ]] || \
+	die "kernel deb Architecture mismatch"
+[[ "$(dpkg-deb -f "$OUT_DTBS_DEB" Package)" == nvidia-l4t-kernel-dtbs ]] || \
+	die "dtbs deb Package mismatch"
+[[ "$(dpkg-deb -f "$OUT_DTBS_DEB" Version)" == "$KERNEL_DEB_VERSION" ]] || \
+	die "dtbs deb Version mismatch"
+[[ "$(dpkg-deb -f "$OUT_DTBS_DEB" Architecture)" == arm64 ]] || \
+	die "dtbs deb Architecture mismatch"
+test -f "$KERNEL_PAYLOAD/boot/Image"
+test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.dep"
+test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
+test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-0000-p3449-0000-a02.dtb"
+test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+
+sha256sum "$OUT_KERNEL_DEB" > "${OUT_KERNEL_DEB}.sha256"
+sha256sum "$OUT_DTBS_DEB" > "${OUT_DTBS_DEB}.sha256"
+echo "kernel deb: $OUT_KERNEL_DEB"
+echo "dtbs deb:   $OUT_DTBS_DEB"
+echo "Linux_for_Tegra/kernel/ left untouched (official packages used read-only)"
 
 rm -f "$MERGED_DTB"
 echo "build complete: $ARCHIVE"
