@@ -252,6 +252,11 @@ assert_status imx219_single_cam0 disabled
 assert_status imx477_single_cam0 disabled
 assert_status cam_module0_drivernode1 disabled
 
+OV_SENSOR="$(symbol_path ov5647_single_cam0)"
+if fdtget "$MERGED_DTB" "$OV_SENSOR" mclk >/dev/null 2>&1; then
+	die "OV5647 must use its module-supplied 25 MHz clock, not a Tegra MCLK"
+fi
+
 OV_ENDPOINT="$(symbol_path ov5647_out0)"
 CSI_IN="$(symbol_path rbpcv2_imx219_csi_in0)"
 CSI_OUT="$(symbol_path rbpcv2_imx219_csi_out0)"
@@ -266,7 +271,9 @@ VI_IN="$(symbol_path rbpcv2_imx219_vi_in0)"
 	"$(fdtget -t x "$MERGED_DTB" "$CSI_OUT" phandle)" ]] || die "VI-to-NVCSI graph is not reciprocal"
 
 for mode in 0 1 2 3; do
-	MODE_PATH="$(symbol_path ov5647_single_cam0)/mode${mode}"
+	MODE_PATH="$OV_SENSOR/mode${mode}"
+	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" mclk_khz)" == 25000 ]] || \
+		die "mode${mode} does not declare the module's 25 MHz input clock"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" num_lanes)" == 2 ]] || \
 		die "mode${mode} is not two-lane"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" tegra_sinterface)" == serial_a ]] || \

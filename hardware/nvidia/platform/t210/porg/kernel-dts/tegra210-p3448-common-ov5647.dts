@@ -27,7 +27,7 @@
 				physical_h = "2.740";
 				sensor_model = "ov5647";
 				use_sensor_mode_id = "true";
-				mclk = "clk_out_3";
+				/* The camera module supplies its own 25 MHz clock. */
 				reset-gpios = <&gpio TEGRA_GPIO(S, 7) GPIO_ACTIVE_HIGH>;
 
 				mode0 {

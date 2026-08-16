@@ -248,8 +248,9 @@ static int ov5647_power_on(struct camera_common_data *s_data)
 		return err;
 	}
 
+	/* PWDN is active high: keep the sensor shut down while rails settle. */
 	if (gpio_is_valid(pw->reset_gpio))
-		gpio_set_value_cansleep(pw->reset_gpio, 0);
+		gpio_set_value_cansleep(pw->reset_gpio, 1);
 
 	usleep_range(10, 20);
 	if (pw->avdd) {
@@ -270,7 +271,7 @@ static int ov5647_power_on(struct camera_common_data *s_data)
 
 	usleep_range(10, 20);
 	if (gpio_is_valid(pw->reset_gpio))
-		gpio_set_value_cansleep(pw->reset_gpio, 1);
+		gpio_set_value_cansleep(pw->reset_gpio, 0);
 
 	/* OV5647 requires at least 20 ms after power-down deassertion. */
 	msleep(20);
@@ -284,6 +285,8 @@ disable_avdd:
 	if (pw->avdd)
 		regulator_disable(pw->avdd);
 fail:
+	if (gpio_is_valid(pw->reset_gpio))
+		gpio_set_value_cansleep(pw->reset_gpio, 1);
 	dev_err(dev, "power-on sequence failed: %d\n", err);
 	return err;
 }
@@ -300,7 +303,7 @@ static int ov5647_power_off(struct camera_common_data *s_data)
 			return err;
 	} else {
 		if (gpio_is_valid(pw->reset_gpio))
-			gpio_set_value_cansleep(pw->reset_gpio, 0);
+			gpio_set_value_cansleep(pw->reset_gpio, 1);
 		usleep_range(10, 20);
 		if (pw->dvdd)
 			regulator_disable(pw->dvdd);
@@ -331,8 +334,10 @@ static int ov5647_power_put(struct tegracam_device *tc_dev)
 	pw->avdd = NULL;
 	pw->iovdd = NULL;
 
-	if (gpio_is_valid(pw->reset_gpio))
+	if (gpio_is_valid(pw->reset_gpio)) {
+		gpio_set_value_cansleep(pw->reset_gpio, 1);
 		gpio_free(pw->reset_gpio);
+	}
 
 	return 0;
 }
@@ -383,6 +388,11 @@ static int ov5647_power_get(struct tegracam_device *tc_dev)
 	err = gpio_request(pw->reset_gpio, "ov5647_pwdn");
 	if (err)
 		return err;
+	err = gpio_direction_output(pw->reset_gpio, 1);
+	if (err) {
+		gpio_free(pw->reset_gpio);
+		return err;
+	}
 
 	pw->state = SWITCH_OFF;
 	return 0;
