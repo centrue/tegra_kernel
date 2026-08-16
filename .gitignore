@@ -19,6 +19,7 @@ modules.order
 *.su
 *.gcno
 *.gcda
+/out/
 
 # Editor / OS files
 *.swp

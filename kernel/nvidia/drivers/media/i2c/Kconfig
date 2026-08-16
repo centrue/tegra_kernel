@@ -31,6 +31,16 @@ config VIDEO_IMX219
 	  To compile this driver as a module, choose M here: the module
 	  will be called imx219.
 
+config VIDEO_OV5647
+	tristate "OV5647 camera sensor support"
+	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
+	---help---
+	  This driver supports the OmniVision OV5647 RAW10 camera sensor
+	  through NVIDIA's Tegra camera framework.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called ov5647.
+
 config VIDEO_IMX268
 	tristate "IMX268 camera sensor support"
 	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
