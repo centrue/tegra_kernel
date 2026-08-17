@@ -6,6 +6,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/gpio/tegra-gpio.h>
+#include <dt-bindings/clock/tegra210-car.h>
 
 / {
 	overlay-name = "Camera OV5647";
@@ -27,11 +28,15 @@
 				physical_h = "2.740";
 				sensor_model = "ov5647";
 				use_sensor_mode_id = "true";
-				/* The camera module supplies its own 25 MHz clock. */
+				/* Clone RPi-v1 modules documented by the bring-up use 24 MHz. */
+				clocks = <&tegra_car TEGRA210_CLK_CLK_OUT_3>;
+				clock-names = "clk_out_3";
+				clock-frequency = <24000000>;
+				mclk = "clk_out_3";
 				reset-gpios = <&gpio TEGRA_GPIO(S, 7) GPIO_ACTIVE_HIGH>;
 
 				mode0 {
-					mclk_khz = "25000";
+					mclk_khz = "24000";
 					num_lanes = "2";
 					tegra_sinterface = "serial_a";
 					phy_mode = "DPHY";
@@ -48,7 +53,7 @@
 					line_length = "2844";
 					inherent_gain = "1";
 					mclk_multiplier = "3.5";
-					pix_clk_hz = "87500000";
+					pix_clk_hz = "84000000";
 					gain_factor = "16";
 					min_gain_val = "16";
 					max_gain_val = "1023";
@@ -70,7 +75,7 @@
 				};
 
 				mode1 {
-					mclk_khz = "25000";
+					mclk_khz = "24000";
 					num_lanes = "2";
 					tegra_sinterface = "serial_a";
 					phy_mode = "DPHY";
@@ -87,7 +92,7 @@
 					line_length = "2416";
 					inherent_gain = "1";
 					mclk_multiplier = "3.5";
-					pix_clk_hz = "87500000";
+					pix_clk_hz = "84000000";
 					gain_factor = "16";
 					min_gain_val = "16";
 					max_gain_val = "1023";
@@ -109,7 +114,7 @@
 				};
 
 				mode2 {
-					mclk_khz = "25000";
+					mclk_khz = "24000";
 					num_lanes = "2";
 					tegra_sinterface = "serial_a";
 					phy_mode = "DPHY";
@@ -126,7 +131,7 @@
 					line_length = "1896";
 					inherent_gain = "1";
 					mclk_multiplier = "3.5";
-					pix_clk_hz = "87500000";
+					pix_clk_hz = "84000000";
 					gain_factor = "16";
 					min_gain_val = "16";
 					max_gain_val = "1023";
@@ -148,7 +153,7 @@
 				};
 
 				mode3 {
-					mclk_khz = "25000";
+					mclk_khz = "24000";
 					num_lanes = "2";
 					tegra_sinterface = "serial_a";
 					phy_mode = "DPHY";
@@ -165,7 +170,7 @@
 					line_length = "1852";
 					inherent_gain = "1";
 					mclk_multiplier = "2.33332";
-					pix_clk_hz = "58333000";
+					pix_clk_hz = "56000000";
 					gain_factor = "16";
 					min_gain_val = "16";
 					max_gain_val = "1023";

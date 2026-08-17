@@ -16,6 +16,7 @@ DRIVER_MODE="builtin"
 JOBS="$(nproc)"
 OUTPUT=""
 CLEAN=0
+UPDATE_PACKAGE_LOCK=1
 
 usage() {
 	cat <<'EOF'
@@ -26,12 +27,17 @@ Options:
   --jobs N                     Parallel build jobs (default: nproc)
   --output DIR                 Output directory (default: out/ov5647-MODE)
   --clean                      Remove and recreate the selected output directory
+  --no-package-lock-update     Do not install the debs into Linux_for_Tegra/kernel
+                               or update tools/jetson-jammy/package-lock.tsv
   -h, --help                   Show this help
 
 It emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
 <output>/deb/ (OUTPUT defaults to out/ov5647-MODE). The pristine NVIDIA
-packages under Linux_for_Tegra/kernel/ are used read-only as packaging
-templates and are never modified. It never flashes a device.
+packages under Linux_for_Tegra/kernel/ are used as packaging templates. By
+default, the resulting debs replace the two kernel package files there and
+refresh their exact hashes in tools/jetson-jammy/package-lock.tsv. Use
+--no-package-lock-update for a read-only package-template build. It never
+flashes a device.
 EOF
 }
 
@@ -59,6 +65,10 @@ while (($#)); do
 			;;
 		--clean)
 			CLEAN=1
+			shift
+			;;
+		--no-package-lock-update)
+			UPDATE_PACKAGE_LOCK=0
 			shift
 			;;
 		-h|--help)
@@ -104,7 +114,7 @@ mkdir -p "$BUILD_DIR" "$META_DIR"
 
 exec > >(tee "$LOG_FILE") 2>&1
 
-for command in make bc flex bison dtc fdtoverlay fdtget depmod dpkg-deb tar sha256sum nm xxd cmp cp; do
+for command in make bc flex bison dtc fdtoverlay fdtget depmod dpkg-deb tar sha256sum nm xxd cmp cp awk mktemp mv install; do
 	command -v "$command" >/dev/null 2>&1 || die "missing host command: $command"
 done
 [[ -x "${CROSS_COMPILE}gcc" ]] || die "cross compiler not found: ${CROSS_COMPILE}gcc"
@@ -259,9 +269,10 @@ assert_status imx477_single_cam0 disabled
 assert_status cam_module0_drivernode1 disabled
 
 OV_SENSOR="$(symbol_path ov5647_single_cam0)"
-if fdtget "$MERGED_DTB" "$OV_SENSOR" mclk >/dev/null 2>&1; then
-	die "OV5647 must use its module-supplied 25 MHz clock, not a Tegra MCLK"
-fi
+[[ "$(fdtget -t s "$MERGED_DTB" "$OV_SENSOR" mclk)" == clk_out_3 ]] || \
+	die "OV5647 must use the documented Tegra clk_out_3 input clock"
+[[ "$(fdtget -t x "$MERGED_DTB" "$OV_SENSOR" clock-frequency)" == 16e3600 ]] || \
+	die "OV5647 clock-frequency is not 24 MHz"
 
 OV_ENDPOINT="$(symbol_path ov5647_out0)"
 CSI_IN="$(symbol_path rbpcv2_imx219_csi_in0)"
@@ -278,14 +289,16 @@ VI_IN="$(symbol_path rbpcv2_imx219_vi_in0)"
 
 for mode in 0 1 2 3; do
 	MODE_PATH="$OV_SENSOR/mode${mode}"
-	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" mclk_khz)" == 25000 ]] || \
-		die "mode${mode} does not declare the module's 25 MHz input clock"
+	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" mclk_khz)" == 24000 ]] || \
+		die "mode${mode} does not declare the documented 24 MHz input clock"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" num_lanes)" == 2 ]] || \
 		die "mode${mode} is not two-lane"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" tegra_sinterface)" == serial_a ]] || \
 		die "mode${mode} does not use CSI-A"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" pixel_t)" == bayer_bggr10 ]] || \
 		die "mode${mode} is not RAW10 BGGR"
+	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" pixel_phase)" == bggr ]] || \
+		die "mode${mode} pixel_phase is not BGGR"
 done
 
 {
@@ -335,9 +348,10 @@ MODULES_SOFTDEP="${DEB_STAGE}/modules.softdep"
 [[ -f "$OFFICIAL_KERNEL_DEB" ]] || die "official kernel deb missing: $OFFICIAL_KERNEL_DEB"
 [[ -f "$OFFICIAL_DTBS_DEB" ]] || die "official dtbs deb missing: $OFFICIAL_DTBS_DEB"
 
-# The official packages are read-only templates (control, maintainer scripts,
-# and the base dtb/dtbo set). Nothing under Linux_for_Tegra/kernel is ever
-# written by this build; all repacked debs land under $OUTPUT/deb/.
+# The official packages are templates for control files, maintainer scripts,
+# and the base dtb/dtbo set. Repacked debs are always written to $OUTPUT/deb/;
+# after the package gates below, the default lock-update step also installs
+# those exact artifacts into Linux_for_Tegra/kernel/.
 
 rm -rf "$KERNEL_PAYLOAD" "$DTBS_PAYLOAD"
 mkdir -p "$KERNEL_PAYLOAD" "$DTBS_PAYLOAD"
@@ -398,7 +412,64 @@ sha256sum "$OUT_KERNEL_DEB" > "${OUT_KERNEL_DEB}.sha256"
 sha256sum "$OUT_DTBS_DEB" > "${OUT_DTBS_DEB}.sha256"
 echo "kernel deb: $OUT_KERNEL_DEB"
 echo "dtbs deb:   $OUT_DTBS_DEB"
-echo "Linux_for_Tegra/kernel/ left untouched (official packages used read-only)"
+
+if ((UPDATE_PACKAGE_LOCK)); then
+	PACKAGE_LOCK="${SCRIPT_DIR}/../Linux_for_Tegra/tools/jetson-jammy/package-lock.tsv"
+	[[ -f "$PACKAGE_LOCK" ]] || die "package lock missing: $PACKAGE_LOCK"
+
+	kernel_package="$(dpkg-deb -f "$OUT_KERNEL_DEB" Package)"
+	kernel_version="$(dpkg-deb -f "$OUT_KERNEL_DEB" Version)"
+	kernel_filename="$(basename "$OUT_KERNEL_DEB")"
+	dtbs_package="$(dpkg-deb -f "$OUT_DTBS_DEB" Package)"
+	dtbs_version="$(dpkg-deb -f "$OUT_DTBS_DEB" Version)"
+	dtbs_filename="$(basename "$OUT_DTBS_DEB")"
+	kernel_hash="$(sha256sum "$OUT_KERNEL_DEB" | awk '{print $1}')"
+	dtbs_hash="$(sha256sum "$OUT_DTBS_DEB" | awk '{print $1}')"
+	lock_kernel_path="kernel/${kernel_filename}"
+	lock_dtbs_path="kernel/${dtbs_filename}"
+	lock_tmp="$(mktemp "${PACKAGE_LOCK}.tmp.XXXXXX")"
+
+	# The lock paths are consumed relative to Linux_for_Tegra/. Update exactly
+	# the two local-L4T rows, preserving every unrelated package entry.
+	if ! awk -F '\t' -v OFS='\t' \
+		-v kp="$kernel_package" -v kv="$kernel_version" \
+		-v kf="$lock_kernel_path" -v kh="$kernel_hash" \
+		-v dp="$dtbs_package" -v dv="$dtbs_version" \
+		-v df="$lock_dtbs_path" -v dh="$dtbs_hash" '
+		BEGIN { kernel_rows = 0; dtbs_rows = 0 }
+		/^#/ || NF == 0 { print; next }
+		{
+			if ($1 == "local-l4t" && $2 == kp) {
+				if ($3 != kv || $4 != kf) exit 20
+				$5 = kh
+				kernel_rows++
+			} else if ($1 == "local-l4t" && $2 == dp) {
+				if ($3 != dv || $4 != df) exit 21
+				$5 = dh
+				dtbs_rows++
+			}
+			print
+		}
+		END {
+			if (kernel_rows != 1 || dtbs_rows != 1) exit 22
+		}' "$PACKAGE_LOCK" > "$lock_tmp"; then
+		rm -f "$lock_tmp"
+		die "package lock does not contain the expected local-L4T kernel rows"
+	fi
+
+	# Install the exact bytes whose hashes were recorded. This keeps the lock
+	# consumable by fetch-package-cache.sh and container-build.sh.
+	install -m 0644 "$OUT_KERNEL_DEB" \
+		"${L4T_KERNEL_DIR}/${kernel_filename}"
+	install -m 0644 "$OUT_DTBS_DEB" \
+		"${L4T_KERNEL_DIR}/${dtbs_filename}"
+	mv "$lock_tmp" "$PACKAGE_LOCK"
+	echo "updated package lock: $PACKAGE_LOCK"
+	echo "installed locked kernel deb: ${L4T_KERNEL_DIR}/${kernel_filename}"
+	echo "installed locked dtbs deb:   ${L4T_KERNEL_DIR}/${dtbs_filename}"
+else
+	echo "package lock update disabled; Linux_for_Tegra/kernel/ left unchanged"
+fi
 
 rm -f "$MERGED_DTB"
 echo "build complete: $ARCHIVE"

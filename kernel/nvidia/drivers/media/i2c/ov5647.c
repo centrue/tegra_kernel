@@ -37,6 +37,7 @@
 #define OV5647_FRAME_LENGTH_HIGH_REG	0x380e
 #define OV5647_FRAME_LENGTH_LOW_REG	0x380f
 #define OV5647_GROUP_ACCESS_REG		0x3208
+#define OV5647_TEST_PATTERN_REG		0x503d
 #define OV5647_GROUP_HOLD_START		0x00
 #define OV5647_GROUP_HOLD_END		0x10
 #define OV5647_GROUP_HOLD_LAUNCH	0xa0
@@ -248,11 +249,16 @@ static int ov5647_power_on(struct camera_common_data *s_data)
 		return err;
 	}
 
-	/* PWDN is active high: keep the sensor shut down while rails settle. */
+	/*
+	 * CAM1_PWDN is described as GPIO_ACTIVE_HIGH by the board DT, but
+	 * the OV5647 bring-up sequence drives the physical line low before
+	 * enabling the rails and high afterwards.  Keep this ordering: the
+	 * SCCB chip-ID read is only valid after the 23 ms startup delay.
+	 */
 	if (gpio_is_valid(pw->reset_gpio))
-		gpio_set_value_cansleep(pw->reset_gpio, 1);
+		gpio_set_value_cansleep(pw->reset_gpio, 0);
 
-	usleep_range(10, 20);
+	usleep_range(1000, 2000);
 	if (pw->avdd) {
 		err = regulator_enable(pw->avdd);
 		if (err)
@@ -269,12 +275,10 @@ static int ov5647_power_on(struct camera_common_data *s_data)
 			goto disable_iovdd;
 	}
 
-	usleep_range(10, 20);
+	/* Release PWDN, then satisfy the sensor t4+t5+t9 startup delay. */
 	if (gpio_is_valid(pw->reset_gpio))
-		gpio_set_value_cansleep(pw->reset_gpio, 0);
-
-	/* OV5647 requires at least 20 ms after power-down deassertion. */
-	msleep(20);
+		gpio_set_value_cansleep(pw->reset_gpio, 1);
+	msleep(23);
 	pw->state = SWITCH_ON;
 	return 0;
 
@@ -470,9 +474,24 @@ static int ov5647_set_mode(struct tegracam_device *tc_dev)
 static int ov5647_start_streaming(struct tegracam_device *tc_dev)
 {
 	struct ov5647 *priv = tegracam_get_privdata(tc_dev);
+	int err;
 
-	return ov5647_write_table(priv,
+	err = ov5647_write_table(priv,
 		ov5647_mode_table[OV5647_START_STREAM]);
+	if (err)
+		return err;
+
+	/* The OV5647 test-pattern register must be explicitly disabled after
+	 * every mode reset. */
+	err = ov5647_write_reg(tc_dev->s_data, OV5647_TEST_PATTERN_REG, 0x00);
+	if (err)
+		return err;
+
+	/* ov5647_mode_common writes 0x3503=0x03 (manual exposure/gain).
+	 * Argus supplies the actual values through the tegracam controls.  Do
+	 * not enable the sensor's own AEC/AGC loop here: competing control
+	 * loops produce visible gray exposure flashes during streaming. */
+	return 0;
 }
 
 static int ov5647_stop_streaming(struct tegracam_device *tc_dev)
