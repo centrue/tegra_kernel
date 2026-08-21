@@ -17,6 +17,7 @@ JOBS="$(nproc)"
 OUTPUT=""
 CLEAN=0
 UPDATE_PACKAGE_LOCK=1
+CCACHE_DIR_OVERRIDE="${JETSON_CCACHE_DIR:-${CCACHE_DIR:-/home/liaic/ccache/jetson-kernel}}"
 
 usage() {
 	cat <<'EOF'
@@ -29,6 +30,7 @@ Options:
   --clean                      Remove and recreate the selected output directory
   --no-package-lock-update     Do not install the debs into Linux_for_Tegra/kernel
                                or update tools/jetson-jammy/package-lock.tsv
+  --ccache-dir DIR             Persistent ccache directory (default: /mnt/raid0/ccache/jetson-kernel)
   -h, --help                   Show this help
 
 It emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
@@ -70,6 +72,11 @@ while (($#)); do
 		--no-package-lock-update)
 			UPDATE_PACKAGE_LOCK=0
 			shift
+			;;
+		--ccache-dir)
+			(($# >= 2)) || die "--ccache-dir requires an argument"
+			CCACHE_DIR_OVERRIDE="$2"
+			shift 2
 			;;
 		-h|--help)
 			usage
@@ -114,9 +121,14 @@ mkdir -p "$BUILD_DIR" "$META_DIR"
 
 exec > >(tee "$LOG_FILE") 2>&1
 
-for command in make bc flex bison dtc fdtoverlay fdtget depmod dpkg-deb tar sha256sum nm xxd cmp cp awk mktemp mv install; do
+for command in make bc flex bison dtc fdtoverlay fdtget depmod dpkg-deb tar sha256sum nm xxd cmp cp awk mktemp mv install ccache; do
 	command -v "$command" >/dev/null 2>&1 || die "missing host command: $command"
 done
+CCACHE_BIN="$(command -v ccache)"
+CCACHE_DIR="$(realpath -m "$CCACHE_DIR_OVERRIDE")"
+mkdir -p "$CCACHE_DIR"
+export CCACHE_DIR
+export CCACHE_COMPILERCHECK=content
 [[ -x "${CROSS_COMPILE}gcc" ]] || die "cross compiler not found: ${CROSS_COMPILE}gcc"
 COMPILER_VERSION="$(${CROSS_COMPILE}gcc --version | head -n1)"
 [[ "$COMPILER_VERSION" == *"Linaro GCC 7.3-2018.05"* && \
@@ -139,6 +151,7 @@ MAKE_ARGS=(
 	O="$BUILD_DIR"
 	ARCH=arm64
 	CROSS_COMPILE="$CROSS_COMPILE"
+	CC="$CCACHE_BIN ${CROSS_COMPILE}gcc"
 	LOCALVERSION=-tegra
 	'the-space=$(space)'
 )
@@ -149,6 +162,8 @@ echo "output: $OUTPUT"
 echo "driver mode: $DRIVER_MODE"
 echo "jobs: $JOBS"
 echo "compiler: $COMPILER_VERSION"
+echo "ccache: $CCACHE_BIN"
+echo "ccache directory: $CCACHE_DIR"
 
 make "${MAKE_ARGS[@]}" tegra_defconfig
 if [[ "$DRIVER_MODE" == builtin ]]; then
@@ -160,6 +175,7 @@ else
 fi
 make "${MAKE_ARGS[@]}" olddefconfig
 make "${MAKE_ARGS[@]}" -j"$JOBS" --output-sync=target Image modules dtbs
+"$CCACHE_BIN" --show-stats | tee "$META_DIR/ccache-stats-after-compile.txt"
 
 KERNEL_RELEASE="$(make "${MAKE_ARGS[@]}" -s kernelrelease)"
 [[ "$KERNEL_RELEASE" == "4.9.337-tegra" ]] || \
@@ -306,6 +322,8 @@ done
 	echo -e "kernel_release\t$KERNEL_RELEASE"
 	echo -e "driver_mode\t$DRIVER_MODE"
 	echo -e "compiler\t$COMPILER_VERSION"
+	echo -e "ccache\t$CCACHE_BIN"
+	echo -e "ccache_dir\t$CCACHE_DIR"
 	echo -e "source_commit\t$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
 	echo -e "source_dirty\t$(git -C "$SCRIPT_DIR" status --porcelain | wc -l) paths"
 	echo -e "source_date_epoch\t$SOURCE_DATE_EPOCH"
