@@ -30,7 +30,7 @@ Options:
   --clean                      Remove and recreate the selected output directory
   --no-package-lock-update     Do not install the debs into Linux_for_Tegra/kernel
                                or update tools/jetson-jammy/package-lock.tsv
-  --ccache-dir DIR             Persistent ccache directory (default: /mnt/raid0/ccache/jetson-kernel)
+  --ccache-dir DIR             Persistent ccache directory (default: /home/liaic/ccache/jetson-kernel)
   -h, --help                   Show this help
 
 It emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
@@ -219,6 +219,7 @@ SOURCE_FILES=(
 	hardware/nvidia/platform/t210/porg/kernel-dts/Makefile
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov5647.dts
 	kernel/kernel-4.9/arch/arm64/configs/tegra_defconfig
+	kernel/kernel-4.9/drivers/gpio/gpio-tegra.c
 	kernel/nvidia/drivers/media/i2c/Kconfig
 	kernel/nvidia/drivers/media/i2c/Makefile
 	kernel/nvidia/drivers/media/i2c/ov5647.c

@@ -107,6 +107,19 @@ struct tegra_gpio_info {
 };
 static struct tegra_gpio_info *gpio_info;
 
+/*
+ * The T210 boot firmware leaves the Nano header SPI/I2S pins in GPIO mode.
+ * Those CNF bits must be cleared before the SPI controller can claim the
+ * pins through pinctrl.  These are the GPIO numbers used by the P3448 A02
+ * header (SPI2 PB4-PB7, SPI1 PC0-PC4, and SPI2 CS1 PDD0), plus the four
+ * DAP/I2S pins retained by the proven Milana handoff.
+ */
+static bool tegra_gpio_is_gpio_force_disabled(unsigned int gpio)
+{
+	return (gpio >= 12 && gpio <= 20) || gpio == 232 ||
+		(gpio >= 76 && gpio <= 79);
+}
+
 static inline void tegra_gpio_writel(struct tegra_gpio_info *tgi,
 				     u32 val, u32 reg)
 {
@@ -217,6 +230,11 @@ static void tegra_gpio_enable(struct tegra_gpio_info *tgi, int gpio)
 	tegra_gpio_mask_write(tgi, GPIO_MSK_CNF(tgi, gpio), gpio, 1);
 }
 
+static void tegra_gpio_disable(struct tegra_gpio_info *tgi, int gpio)
+{
+	tegra_gpio_mask_write(tgi, GPIO_MSK_CNF(tgi, gpio), gpio, 0);
+}
+
 static int tegra_gpio_request(struct gpio_chip *chip, unsigned offset)
 {
 	tegra_gpio_save_gpio_state(offset);
@@ -225,8 +243,11 @@ static int tegra_gpio_request(struct gpio_chip *chip, unsigned offset)
 
 static void tegra_gpio_free(struct gpio_chip *chip, unsigned offset)
 {
+	struct tegra_gpio_info *tgi = gpiochip_get_data(chip);
+
 	pinctrl_free_gpio(chip->base + offset);
 	tegra_gpio_restore_gpio_state(offset);
+	tegra_gpio_disable(tgi, offset);
 }
 
 static void tegra_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
@@ -793,6 +814,31 @@ static int tegra_gpio_probe(struct platform_device *pdev)
 		irq_set_lockdep_class(irq, &gpio_lock_class);
 		irq_set_chip_data(irq, bank);
 		irq_set_chip_and_handler(irq, &tgi->ic, handle_simple_irq);
+	}
+
+	/* Release boot-firmware GPIO ownership before SPI/I2S pinctrl probes. */
+	for (gpio = 0; gpio < tgi->gc.ngpio; gpio++) {
+		int b, p;
+		u32 mask, enabled;
+		unsigned long flags;
+
+		if (!tegra_gpio_is_gpio_force_disabled(gpio))
+			continue;
+
+		b = GPIO_BANK(gpio);
+		p = GPIO_PORT(gpio);
+		mask = BIT(GPIO_BIT(gpio));
+		bank = &tgi->bank_info[b];
+
+		spin_lock_irqsave(&bank->gpio_lock[p], flags);
+		enabled = tegra_gpio_readl(tgi, GPIO_CNF(tgi, gpio)) & mask;
+		spin_unlock_irqrestore(&bank->gpio_lock[p], flags);
+
+		if (enabled) {
+			dev_info(&pdev->dev, "releasing boot GPIO %u for SPI/I2S\n",
+				 gpio);
+			tegra_gpio_disable(tgi, gpio);
+		}
 	}
 
 	tegra_gpio_debuginit(tgi);
