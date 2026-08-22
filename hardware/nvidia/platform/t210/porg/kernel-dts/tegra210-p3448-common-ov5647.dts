@@ -49,6 +49,8 @@
 					pixel_t = "bayer_bggr10";
 					active_w = "2592";
 					active_h = "1944";
+					active_l = "0";
+					active_t = "0";
 					readout_orientation = "0";
 					line_length = "2844";
 					inherent_gain = "1";
@@ -88,6 +90,8 @@
 					pixel_t = "bayer_bggr10";
 					active_w = "1920";
 					active_h = "1080";
+					active_l = "0";
+					active_t = "0";
 					readout_orientation = "0";
 					line_length = "2416";
 					inherent_gain = "1";
@@ -127,6 +131,8 @@
 					pixel_t = "bayer_bggr10";
 					active_w = "1296";
 					active_h = "972";
+					active_l = "0";
+					active_t = "0";
 					readout_orientation = "0";
 					line_length = "1896";
 					inherent_gain = "1";
@@ -166,6 +172,8 @@
 					pixel_t = "bayer_bggr10";
 					active_w = "640";
 					active_h = "480";
+					active_l = "0";
+					active_t = "0";
 					readout_orientation = "0";
 					line_length = "1852";
 					inherent_gain = "1";

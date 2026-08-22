@@ -23,6 +23,8 @@
 #error VB2_MAX_PLANES != VIDEO_MAX_PLANES
 #endif
 
+struct video_device;
+
 /**
  * struct vb2_v4l2_buffer - video buffer information for v4l2
  *
@@ -238,6 +240,7 @@ unsigned int vb2_poll(struct vb2_queue *q, struct file *file,
  */
 
 /* struct v4l2_ioctl_ops helpers */
+bool vb2_queue_is_busy(struct video_device *vdev, struct file *file);
 
 int vb2_ioctl_reqbufs(struct file *file, void *priv,
 			  struct v4l2_requestbuffers *p);

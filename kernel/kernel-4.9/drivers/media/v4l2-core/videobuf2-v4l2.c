@@ -703,10 +703,11 @@ EXPORT_SYMBOL_GPL(vb2_poll);
  */
 
 /* The queue is busy if there is a owner and you are not that owner. */
-static inline bool vb2_queue_is_busy(struct video_device *vdev, struct file *file)
+bool vb2_queue_is_busy(struct video_device *vdev, struct file *file)
 {
 	return vdev->queue->owner && vdev->queue->owner != file->private_data;
 }
+EXPORT_SYMBOL_GPL(vb2_queue_is_busy);
 
 /* vb2 ioctl helpers */
 

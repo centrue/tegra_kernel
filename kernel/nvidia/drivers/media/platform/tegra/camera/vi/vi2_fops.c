@@ -22,6 +22,9 @@
 #include "vi2_formats.h"
 #include <trace/events/camera_common.h>
 
+#define DEFAULT_TIMEOUT_JIFFIES 200
+#define MIPI_NO_TIMEOUT (-1)
+
 static void tegra_channel_stop_kthreads(struct tegra_channel *chan);
 
 static void vi_write(struct tegra_mc_vi *vi, unsigned int addr, u32 val)
@@ -225,8 +228,16 @@ static void tegra_channel_ec_init(struct tegra_channel *chan)
 	 * set timeout as 200 ms, use default if fps not available
 	 * Time limit allow CSI to capture good frames and drop error frames
 	 * TODO: Get frame rate from sub-device and adopt timeout
+	 *
+	 * VC_MIPI: Timeout changed to a much longer time due to the need of
+	 *          external trigger modes.
 	 */
-	chan->timeout = msecs_to_jiffies(200);
+
+	if (0 < chan->trigger_mode) {
+		chan->timeout = MIPI_NO_TIMEOUT;
+	} else {
+		chan->timeout = msecs_to_jiffies(DEFAULT_TIMEOUT_JIFFIES);
+	}
 
 	/*
 	 * Sync point FIFO full blocks host interface
@@ -350,13 +361,34 @@ static int tegra_channel_error_status(struct tegra_channel *chan)
 	for (index = 0; index < chan->valid_ports; index++) {
 		/* Ignore error based on resolution but reset status */
 		val = csi_read(chan, index, TEGRA_VI_CSI_ERROR_STATUS);
+		switch(val) {
+		case 0x00000000: break;
+		case 0x00000001:
+			dev_err(chan->vi->dev, "%s(): Image width is to long! (TEGRA_VI_CSI_ERROR_STATUS: 0x%04x, port: %d)\n", __func__, val, index);
+		break;
+		case 0x00000002:
+			dev_err(chan->vi->dev, "%s(): Image width is to short! (TEGRA_VI_CSI_ERROR_STATUS: 0x%04x, port: %d)\n", __func__, val, index);
+		break;
+		case 0x00000004:
+			dev_err(chan->vi->dev, "%s(): Image height is to long! (TEGRA_VI_CSI_ERROR_STATUS: 0x%04x, port: %d)\n", __func__, val, index);
+		break;
+		case 0x00000008:
+			dev_err(chan->vi->dev, "%s(): Image height is to short! (TEGRA_VI_CSI_ERROR_STATUS: 0x%04x, port: %d)\n", __func__, val, index);
+		break;
+		default:
+			dev_err(chan->vi->dev, "%s(): TEGRA_VI_CSI_ERROR_STATUS: 0x%04x (port: %d)\n", __func__, val, index);
+		break;
+		}
 		csi_write(chan, index, TEGRA_VI_CSI_ERROR_STATUS, val);
 		err = tegra_csi_error(csi_chan, index);
 	}
 
-	if (err)
-		dev_err(chan->vi->dev, "%s:error %x frame %d\n",
-				__func__, err, chan->sequence);
+	if (err) {
+		if (err & 0x00020022)
+			dev_err(chan->vi->dev, "%s(): Multi-bit transmission error (err: 0x%08x, frame: %d)\n", __func__, err, chan->sequence);
+		else
+			dev_err(chan->vi->dev, "%s(): Multi-bit header error (err: 0x%x, frame: %d)\n", __func__, err, chan->sequence);
+	}
 	return err;
 }
 
@@ -826,6 +858,8 @@ static int tegra_channel_kthread_capture_start(void *data)
 
 static void tegra_channel_stop_kthreads(struct tegra_channel *chan)
 {
+	struct tegra_channel_buffer *buf = NULL;
+
 	mutex_lock(&chan->stop_kthread_lock);
 	/* Stop the kthread for capture */
 	if (chan->kthread_capture_start) {
@@ -836,6 +870,11 @@ static void tegra_channel_stop_kthreads(struct tegra_channel *chan)
 	if (chan->low_latency) {
 		/* Stop the kthread for release frame */
 		if (chan->kthread_release) {
+			if (!list_empty(&chan->release)) {
+				buf = dequeue_inflight(chan);
+				if (buf)
+					tegra_channel_release_frame(chan, buf);
+			}
 			kthread_stop(chan->kthread_release);
 			chan->kthread_release = NULL;
 		}
@@ -956,6 +995,11 @@ static int vi2_channel_stop_streaming(struct vb2_queue *vq)
 	struct tegra_csi_device *csi = chan->vi->csi;
 	int err = 0;
 
+	chan->timeout = msecs_to_jiffies(DEFAULT_TIMEOUT_JIFFIES);
+	for (index = 0; index < chan->valid_ports; index++) {
+		nvhost_syncpt_stop_waiting_ext(chan->vi->ndev, chan->syncpt[index][0]);
+	}
+
 	if (!chan->bypass) {
 		tegra_channel_stop_kthreads(chan);
 		/* wait for last frame memory write ack */
@@ -986,6 +1030,11 @@ static int vi2_channel_stop_streaming(struct vb2_queue *vq)
 	}
 
 	tegra_channel_set_stream(chan, false);
+
+	for (index = 0; index < chan->valid_ports; index++) {
+		nvhost_syncpt_restart_waiting_ext(chan->vi->ndev, chan->syncpt[index][0]);
+	}
+
 	err = tegra_channel_write_blobs(chan);
 	if (err)
 		return err;
@@ -1108,6 +1157,22 @@ static void vi2_stride_align(unsigned int *bpl)
 	*bpl = ((*bpl + (TEGRA_SURFACE_ALIGNMENT) - 1) &
 			~((TEGRA_SURFACE_ALIGNMENT) - 1));
 }
+
+static int vi2_channel_ready_to_stream(struct tegra_channel *chan)
+{
+	struct v4l2_subdev *sd;
+	struct tegra_mc_vi *vi;
+	int num_sd = 1;
+	int err = 0;
+
+	sd = chan->subdev[num_sd];
+	vi = chan->vi;
+
+	err = v4l2_subdev_call(sd, video, g_ready_to_stream);
+
+	return err;
+}
+
 struct tegra_vi_fops vi2_fops = {
 	.vi_power_on = vi2_power_on,
 	.vi_power_off = vi2_power_off,
@@ -1118,4 +1183,5 @@ struct tegra_vi_fops vi2_fops = {
 	.vi_init_video_formats = vi2_init_video_formats,
 	.vi_mfi_work = vi2_mfi_work,
 	.vi_stride_align = vi2_stride_align,
+	.vi_ready_to_stream = vi2_channel_ready_to_stream,
 };

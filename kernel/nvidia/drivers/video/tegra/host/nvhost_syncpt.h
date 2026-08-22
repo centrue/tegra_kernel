@@ -69,6 +69,7 @@ struct nvhost_syncpt {
 	struct nvhost_syncpt_attr invalid_syncpt_type_attr;
 	struct nvhost_syncpt_attr invalid_assigned_attr;
 #endif
+	atomic_t *stop_stream_called;
 };
 
 int nvhost_syncpt_init(struct platform_device *, struct nvhost_syncpt *);

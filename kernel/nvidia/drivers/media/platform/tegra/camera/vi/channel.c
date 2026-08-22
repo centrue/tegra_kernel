@@ -405,6 +405,10 @@ void release_buffer(struct tegra_channel *chan,
 	if (chan->capture_state != CAPTURE_GOOD || vbuf->sequence < 2)
 		buf->state = VB2_BUF_STATE_REQUEUEING;
 
+	if (atomic_read(&chan->stop_streaming_token)) {
+		buf->state = VB2_BUF_STATE_ERROR;
+	}
+
 	if (chan->sequence == 1) {
 		/*
 		 * Evaluate the initial capture latency between videobuf2 queue
@@ -982,6 +986,8 @@ static int tegra_channel_start_streaming(struct vb2_queue *vq, u32 count)
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
 	struct tegra_mc_vi *vi = chan->vi;
 
+	atomic_set(&chan->stop_streaming_token, 0);
+
 	if (vi->fops) {
 		int ret = 0;
 
@@ -999,6 +1005,8 @@ static void tegra_channel_stop_streaming(struct vb2_queue *vq)
 {
 	struct tegra_channel *chan = vb2_get_drv_priv(vq);
 	struct tegra_mc_vi *vi = chan->vi;
+
+	atomic_set(&chan->stop_streaming_token, 1);
 
 	if (vi->fops) {
 		vi->fops->vi_stop_streaming(vq);
@@ -2018,13 +2026,70 @@ __tegra_channel_set_format(struct tegra_channel *chan,
 }
 
 static int
+__tegra_channel_set_frame_position(struct tegra_channel *chan,
+			__u32 left, __u32 top)
+{
+	struct v4l2_subdev *sd = chan->subdev_on_csi;
+	struct camera_common_data *s_data = to_camera_common_data(sd->dev);
+	struct sensor_properties *sensor = &s_data->sensor_props;
+	int mode_idx = 0;
+
+	if (!s_data->ops || !s_data->ops->dynamic_frmfmt)
+		return -EOPNOTSUPP;
+
+	if (sensor->sensor_modes != NULL && sensor->num_modes > 0 && mode_idx < sensor->num_modes) {
+		struct sensor_mode_properties *mode = &sensor->sensor_modes[mode_idx];
+		struct sensor_image_properties *image = &mode->image_properties;
+		image->left = left;
+		image->top = top;
+		return 0;
+	}
+
+	return -EBUSY;
+}
+
+static int
+__tegra_channel_set_frame_size(struct tegra_channel *chan,
+			struct v4l2_pix_format *pix)
+{
+	struct v4l2_subdev *sd = chan->subdev_on_csi;
+	struct camera_common_data *s_data = to_camera_common_data(sd->dev);
+	struct sensor_properties *sensor = &s_data->sensor_props;
+	int mode_idx = 0;
+
+	if (!s_data->ops || !s_data->ops->dynamic_frmfmt)
+		return -EOPNOTSUPP;
+
+	pix->width = (pix->width / 4) * 4;
+
+	s_data->def_width = pix->width;
+	s_data->def_height = pix->height;
+	if (s_data->frmfmt != NULL && s_data->numfmts > 0 && mode_idx < s_data->numfmts) {
+		struct camera_common_frmfmt *frmfmt = (struct camera_common_frmfmt *)&s_data->frmfmt[mode_idx];
+		frmfmt[mode_idx].size.width = pix->width;
+		frmfmt[mode_idx].size.height = pix->height;
+	}
+	if (sensor->sensor_modes != NULL && sensor->num_modes > 0 && mode_idx < sensor->num_modes) {
+		struct sensor_mode_properties *mode = &sensor->sensor_modes[mode_idx];
+		struct sensor_image_properties *image = &mode->image_properties;
+		image->width = pix->width;
+		image->height = pix->height;
+		return 0;
+	}
+
+	return -EBUSY;
+}
+
+static int
 tegra_channel_set_format(struct file *file, void *fh,
 			struct v4l2_format *format)
 {
 	struct tegra_channel *chan = video_drvdata(file);
 	int ret = 0;
 
-	/* get the suppod format by try_fmt */
+	__tegra_channel_set_frame_size(chan, &format->fmt.pix);
+
+	/* get the supported format by try_fmt */
 	ret = __tegra_channel_try_format(chan, &format->fmt.pix);
 	if (ret)
 		return ret;
@@ -2033,6 +2098,64 @@ tegra_channel_set_format(struct file *file, void *fh,
 		return -EBUSY;
 
 	return __tegra_channel_set_format(chan, &format->fmt.pix);
+}
+
+static int
+tegra_channel_get_selection(struct file *file, void *fh,
+			struct v4l2_selection *selection)
+{
+	struct tegra_channel *chan = video_drvdata(file);
+	struct v4l2_subdev *sd = chan->subdev_on_csi;
+	struct camera_common_data *s_data = to_camera_common_data(sd->dev);
+	struct sensor_properties *sensor = &s_data->sensor_props;
+	int mode_idx = 0;
+
+	switch (selection->target) {
+	case V4L2_SEL_TGT_CROP:
+		if (sensor->sensor_modes != NULL && sensor->num_modes > 0 && mode_idx < sensor->num_modes) {
+			struct sensor_mode_properties *mode = &sensor->sensor_modes[mode_idx];
+			struct sensor_image_properties *image = &mode->image_properties;
+			selection->r.left = image->left;
+			selection->r.top = image->top;
+			selection->r.width = image->width;
+			selection->r.height = image->height;
+
+			dev_dbg(chan->vi->dev, "%s: type: 0x%x, target: 0x%x, flags: 0x%x, left: %u, top: %u, width: %u, height: %u\n", __func__,
+			selection->type, selection->target, selection->flags,
+			selection->r.left, selection->r.top, selection->r.width, selection->r.height);
+			return 0;
+		}
+		break;
+	}
+
+	return -EINVAL;
+}
+
+static int
+tegra_channel_set_selection(struct file *file, void *fh,
+			struct v4l2_selection *selection)
+{
+	struct tegra_channel *chan = video_drvdata(file);
+	struct v4l2_format format;
+
+	dev_dbg(chan->vi->dev, "%s: type: 0x%x, target: 0x%x, flags: 0x%x, left: %u, top: %u, width: %u, height: %u\n", __func__,
+		selection->type, selection->target, selection->flags,
+		selection->r.left, selection->r.top, selection->r.width, selection->r.height);
+
+	switch (selection->target) {
+	case V4L2_SEL_TGT_CROP:
+		__tegra_channel_set_frame_position(chan, selection->r.left, selection->r.top);
+
+		tegra_channel_get_format(file, fh, &format);
+		format.fmt.pix.width = selection->r.width;
+		format.fmt.pix.height = selection->r.height;
+		// bytesperline has to be zero to be recalculated
+		// in tegra_channel_fmt_align()
+		format.fmt.pix.bytesperline = 0;
+		return tegra_channel_set_format(file, fh, &format);
+	}
+
+	return -EINVAL;
 }
 
 static int tegra_channel_subscribe_event(struct v4l2_fh *fh,
@@ -2088,6 +2211,43 @@ static int tegra_channel_s_input(struct file *file, void *priv, unsigned int i)
 	return 0;
 }
 
+static int tegra_channel_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
+{
+	struct video_device *vdev = video_devdata(file);
+
+	struct tegra_channel *chan = vb2_get_drv_priv(vdev->queue);
+	struct tegra_mc_vi *vi = chan->vi;
+
+	struct v4l2_subdev *sd = chan->subdev_on_csi;
+	struct camera_common_data *s_data = to_camera_common_data(sd->dev);
+
+	int ret = 0;
+
+	dev_dbg(chan->vi->dev, "%s: s_data->mode=%d, s_data->mode_prop_idx=%d, s_data->sensor_mode_id=%d \n", __func__,
+		s_data->mode, s_data->mode_prop_idx, s_data->sensor_mode_id);
+
+	if (NULL == vi->fops) {
+		dev_err(chan->vi->dev, "%s: Could not get fops! \n", __func__);
+		return -ENODEV;
+	}
+
+	if (NULL == vi->fops->vi_ready_to_stream){
+		dev_err(chan->vi->dev, "%s: Could not get vi_ready_to_stream! \n", __func__);
+		return -ENODEV;
+	}
+
+	ret = vi->fops->vi_ready_to_stream(chan);
+
+	if (0 > ret) {
+		return -EINVAL;
+	}
+
+	if (vb2_queue_is_busy(vdev, file))
+		return -EBUSY;
+
+	return vb2_streamon(vdev->queue, i);
+}
+
 static int tegra_channel_log_status(struct file *file, void *priv)
 {
 	struct tegra_channel *chan = video_drvdata(file);
@@ -2141,6 +2301,8 @@ static const struct v4l2_ioctl_ops tegra_channel_ioctl_ops = {
 	.vidioc_g_fmt_vid_cap		= tegra_channel_get_format,
 	.vidioc_s_fmt_vid_cap		= tegra_channel_set_format,
 	.vidioc_try_fmt_vid_cap		= tegra_channel_try_format,
+	.vidioc_g_selection		= tegra_channel_get_selection,
+	.vidioc_s_selection		= tegra_channel_set_selection,
 	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
 	.vidioc_prepare_buf		= vb2_ioctl_prepare_buf,
 	.vidioc_querybuf		= vb2_ioctl_querybuf,
@@ -2148,7 +2310,7 @@ static const struct v4l2_ioctl_ops tegra_channel_ioctl_ops = {
 	.vidioc_dqbuf			= vb2_ioctl_dqbuf,
 	.vidioc_create_bufs		= vb2_ioctl_create_bufs,
 	.vidioc_expbuf			= vb2_ioctl_expbuf,
-	.vidioc_streamon		= vb2_ioctl_streamon,
+	.vidioc_streamon		= tegra_channel_streamon,
 	.vidioc_streamoff		= vb2_ioctl_streamoff,
 	.vidioc_g_edid			= tegra_channel_g_edid,
 	.vidioc_s_edid			= tegra_channel_s_edid,

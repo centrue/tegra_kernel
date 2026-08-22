@@ -97,6 +97,41 @@ error:
 	return err;
 }
 
+static int v4l2sd_ready_to_stream(struct v4l2_subdev *sd)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+	struct camera_common_sensor_ops *sensor_ops;
+	struct tegracam_device *tc_dev;
+	int err = 0;
+
+	if (!s_data) {
+		dev_err(&client->dev, "Could not get s_data! \n");
+		return -EINVAL;
+	}
+
+	sensor_ops = s_data->ops;
+	tc_dev = to_tegracam_device(s_data);
+
+	/* The VC preparation callback is optional for existing Tegra sensors. */
+	if (!sensor_ops || !sensor_ops->ready_to_stream)
+		return 0;
+
+	if (!try_module_get(s_data->owner)) {
+		dev_err(&client->dev, "Could not get module! \n");
+		return -ENODEV;
+	}
+
+	err = sensor_ops->ready_to_stream(tc_dev);
+	if (err) {
+		dev_err(&client->dev, "Error calling ready_to_stream \n");
+	}
+
+	module_put(s_data->owner);
+
+	return err;
+}
+
 static int v4l2sd_g_input_status(struct v4l2_subdev *sd, u32 *status)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -111,6 +146,7 @@ static struct v4l2_subdev_video_ops v4l2sd_video_ops = {
 	.s_stream	= v4l2sd_stream,
 	.g_mbus_config	= camera_common_g_mbus_config,
 	.g_input_status = v4l2sd_g_input_status,
+	.g_ready_to_stream = v4l2sd_ready_to_stream,
 };
 
 static struct v4l2_subdev_core_ops v4l2sd_core_ops = {

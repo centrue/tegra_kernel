@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+package=jetson-io-vc-mipi-profiles
+case "$1" in
+    remove|abort-install)
+        for path in \
+            /opt/nvidia/jetson-io/jetson-io.py \
+            /opt/nvidia/jetson-io/config-by-hardware.py; do
+            if [ "$(dpkg-divert --listpackage "$path" 2>/dev/null || true)" = "$package" ]; then
+                dpkg-divert --package "$package" --remove --rename \
+                    --divert "${path}.nvidia-vc-profiles" "$path"
+            fi
+        done
+        ;;
+esac
+
+exit 0

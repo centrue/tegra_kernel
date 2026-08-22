@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+/plugin/;
+
+#define VC_OVERLAY_NAME "Camera VC MIPI (Custom) / IMX296"
+#define VC_PROFILE_MODEL "IMX296"
+#define VC_CAMERA_BADGE "porg_front_vc_mipi_imx296"
+#define VC_FORCE_MOD_ID 0x0296
+#define VC_NUM_LANES 1
+#define VC_NUM_LANES_STRING "1"
+#define VC_PHYSICAL_W "4.968"
+#define VC_PHYSICAL_H "3.726"
+#define VC_ACTIVE_W "1440"
+#define VC_ACTIVE_H "1080"
+#define VC_MAX_GAIN "48000"
+#define VC_STEP_GAIN "100"
+#define VC_MAX_FRAMERATE "60300"
+
+#include "tegra210-p3448-camera-vc-mipi-profile.dtsi"

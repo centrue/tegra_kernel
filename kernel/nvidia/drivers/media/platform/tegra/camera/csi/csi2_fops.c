@@ -98,6 +98,13 @@ int tegra_csi_error(struct tegra_csi_channel *chan, int port_idx)
 
 void tegra_csi_status(struct tegra_csi_channel *chan, int port_idx)
 {
+#define TEGRA_CSI_STATUS_DEV_ERR    1
+
+#if TEGRA_CSI_STATUS_DEV_ERR
+  #define DEV_DBG dev_err
+#else
+  #define DEV_DBG dev_dbg
+#endif
 	int i;
 	u32 val;
 	struct tegra_csi_port *port;
@@ -106,16 +113,16 @@ void tegra_csi_status(struct tegra_csi_channel *chan, int port_idx)
 		port = &chan->ports[i];
 		val = pp_read(port, TEGRA_CSI_PIXEL_PARSER_STATUS);
 
-		dev_dbg(chan->csi->dev,
+		DEV_DBG(chan->csi->dev,
 			"TEGRA_CSI_PIXEL_PARSER_STATUS 0x%08x\n",
 			val);
 
 		val = cil_read(port, TEGRA_CSI_CIL_STATUS);
-		dev_dbg(chan->csi->dev,
+		DEV_DBG(chan->csi->dev,
 			"TEGRA_CSI_CIL_STATUS 0x%08x\n", val);
 
 		val = cil_read(port, TEGRA_CSI_CILX_STATUS);
-		dev_dbg(chan->csi->dev,
+		DEV_DBG(chan->csi->dev,
 			"TEGRA_CSI_CILX_STATUS 0x%08x\n", val);
 	}
 }

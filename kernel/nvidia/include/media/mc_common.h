@@ -262,6 +262,9 @@ struct tegra_channel {
 	enum interlaced_type interlace_type;
 	int interlace_bplfactor;
 
+	atomic_t stop_streaming_token;
+	__u8 trigger_mode;
+
 	atomic_t syncpt_depth;
 	struct rw_semaphore reset_lock;
 };
@@ -418,6 +421,7 @@ struct tegra_vi_fops {
 			bool use_prio, unsigned int cmd, void *arg);
 	int (*vi_mfi_work)(struct tegra_mc_vi *vi, int port);
 	void (*vi_stride_align)(unsigned int *bpl);
+	int (*vi_ready_to_stream)(struct tegra_channel *chan);
 };
 
 struct tegra_csi_fops {

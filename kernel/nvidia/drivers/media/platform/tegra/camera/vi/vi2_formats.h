@@ -81,6 +81,8 @@ static const struct tegra_video_format vi2_video_formats[] = {
 				RAW8, SGBRG8, "GBGB.. RGRG.."),
 	TEGRA_VIDEO_FORMAT(RAW8, 8, SBGGR8_1X8, 1, 1, T_L8,
 				RAW8, SBGGR8, "BGBG.. GRGR.."),
+	TEGRA_VIDEO_FORMAT(RAW8, 8, Y8_1X8, 1, 1, T_L8,
+				RAW8, GREY, "GRAY8"),
 
 	/* RAW 10 */
 	TEGRA_VIDEO_FORMAT(RAW10, 10, SRGGB10_1X10, 2, 1, T_R16_I,
@@ -91,6 +93,8 @@ static const struct tegra_video_format vi2_video_formats[] = {
 				RAW10, SGBRG10, "GBGB.. RGRG.."),
 	TEGRA_VIDEO_FORMAT(RAW10, 10, SBGGR10_1X10, 2, 1, T_R16_I,
 				RAW10, SBGGR10, "BGBG.. GRGR.."),
+	TEGRA_VIDEO_FORMAT(RAW10, 10, Y10_1X10, 2, 1, T_R16_I,
+				RAW10, Y10, "GRAY10"),
 
 	/* RAW 10 Packed format */
 	TEGRA_VIDEO_FORMAT(RAW10, 10, XBGGR10P_3X10, 4, 3, T_X2Lc10Lb10La10,
@@ -107,6 +111,12 @@ static const struct tegra_video_format vi2_video_formats[] = {
 				RAW12, SGBRG12, "GBGB.. RGRG.."),
 	TEGRA_VIDEO_FORMAT(RAW12, 12, SBGGR12_1X12, 2, 1, T_R16_I,
 				RAW12, SBGGR12, "BGBG.. GRGR.."),
+	TEGRA_VIDEO_FORMAT(RAW12, 12, Y12_1X12, 2, 1, T_R16_I,
+				RAW12, Y12, "GRAY12"),
+
+	/* RAW 14 */
+	TEGRA_VIDEO_FORMAT(RAW14, 14, Y14_1X14, 2, 1, T_R16_I,
+				RAW14, Y14, "GRAY14"),
 
 	/* RGB888 */
 	TEGRA_VIDEO_FORMAT(RGB888, 24, RGB888_1X24, 4, 1, T_A8R8G8B8,

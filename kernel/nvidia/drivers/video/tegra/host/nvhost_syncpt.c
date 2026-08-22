@@ -205,6 +205,31 @@ int nvhost_syncpt_incr(struct nvhost_syncpt *sp, u32 id)
 	return 0;
 }
 
+int nvhost_syncpt_stop_waiting_ext(struct platform_device *dev, u32 id)
+{
+	struct nvhost_master *master = nvhost_get_host(dev);
+	struct nvhost_syncpt *sp =
+		nvhost_get_syncpt_owner_struct(id, &master->syncpt);
+
+	atomic_set(&sp->stop_stream_called[id],1);
+
+	return 0;
+}
+EXPORT_SYMBOL(nvhost_syncpt_stop_waiting_ext);
+
+int nvhost_syncpt_restart_waiting_ext(struct platform_device *dev, u32 id)
+{
+	struct nvhost_master *master = nvhost_get_host(dev);
+	struct nvhost_syncpt *sp =
+		nvhost_get_syncpt_owner_struct(id, &master->syncpt);
+
+	atomic_set(&sp->stop_stream_called[id],0);
+
+	return 0;
+}
+EXPORT_SYMBOL(nvhost_syncpt_restart_waiting_ext);
+
+
 /**
  * Updated sync point form hardware, and returns true if syncpoint is expired,
  * false if we may need to wait
@@ -214,6 +239,9 @@ static bool syncpt_update_min_is_expired(
 	u32 id,
 	u32 thresh)
 {
+	if (atomic_read(&sp->stop_stream_called[id])) {
+		return true;
+	}
 	syncpt_op().update_min(sp, id);
 	return nvhost_syncpt_is_expired(sp, id, thresh);
 }
@@ -374,34 +402,37 @@ int nvhost_syncpt_wait_timeout(struct nvhost_syncpt *sp, u32 id,
 			err = remain;
 			break;
 		}
-		if (timeout != NVHOST_NO_TIMEOUT)
+
+		if (timeout != NVHOST_NO_TIMEOUT) {
 			timeout -= check;
-		if (timeout && check_count <= MAX_STUCK_CHECK_COUNT) {
-			new_val = syncpt_op().update_min(sp, id);
-			if (old_val == new_val) {
-				dev_warn(&syncpt_to_dev(sp)->dev->dev,
-					"%s: syncpoint id %d (%s) stuck waiting %d, timeout=%d\n",
-					 current->comm, id,
-					 syncpt_op().name(sp, id),
-					 thresh, timeout);
-				nvhost_syncpt_debug(sp);
-			} else {
-				old_val = new_val;
-				dev_info(&syncpt_to_dev(sp)->dev->dev,
-					"%s: syncpoint id %d (%s) progressing slowly %d, timeout=%d\n",
-					 current->comm, id,
-					 syncpt_op().name(sp, id),
-					 thresh, timeout);
-			}
-			if (check_count == MAX_STUCK_CHECK_COUNT) {
-				if (low_timeout) {
+
+			if (timeout && check_count <= MAX_STUCK_CHECK_COUNT) {
+				new_val = syncpt_op().update_min(sp, id);
+				if (old_val == new_val) {
 					dev_warn(&syncpt_to_dev(sp)->dev->dev,
-						"is timeout %d too low?\n",
-						low_timeout);
+						"%s: syncpoint id %d (%s) stuck waiting %d, timeout=%d\n",
+						current->comm, id,
+						syncpt_op().name(sp, id),
+						thresh, timeout);
+					nvhost_syncpt_debug(sp);
+				} else {
+					old_val = new_val;
+					dev_info(&syncpt_to_dev(sp)->dev->dev,
+						"%s: syncpoint id %d (%s) progressing slowly %d, timeout=%d\n",
+						current->comm, id,
+						syncpt_op().name(sp, id),
+						thresh, timeout);
 				}
-				nvhost_debug_dump(syncpt_to_dev(sp));
+				if (check_count == MAX_STUCK_CHECK_COUNT) {
+					if (low_timeout) {
+						dev_warn(&syncpt_to_dev(sp)->dev->dev,
+							"is timeout %d too low?\n",
+							low_timeout);
+					}
+					nvhost_debug_dump(syncpt_to_dev(sp));
+				}
+				check_count++;
 			}
-			check_count++;
 		}
 	}
 
@@ -1132,6 +1163,7 @@ int nvhost_syncpt_init(struct platform_device *dev,
 	sp->last_used_by = kzalloc(sizeof(char *) * nb_pts, GFP_KERNEL);
 	sp->min_val = kzalloc(sizeof(atomic_t) * nb_pts, GFP_KERNEL);
 	sp->max_val = kzalloc(sizeof(atomic_t) * nb_pts, GFP_KERNEL);
+	sp->stop_stream_called = kzalloc(sizeof(atomic_t) * nb_pts, GFP_KERNEL);
 	sp->lock_counts =
 		kzalloc(sizeof(atomic_t) * nvhost_syncpt_nb_mlocks(sp),
 			GFP_KERNEL);
@@ -1312,6 +1344,9 @@ void nvhost_syncpt_deinit(struct nvhost_syncpt *sp)
 
 	kfree(sp->assigned);
 	sp->assigned = NULL;
+
+	kfree(sp->stop_stream_called);
+	sp->stop_stream_called = NULL;
 
 	nvhost_syncpt_deinit_timeline(sp);
 }

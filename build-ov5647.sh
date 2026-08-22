@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an installable L4T R32.7.6 kernel and OV5647 Jetson-IO overlay.
+# Build an installable L4T R32.7.6 kernel with OV5647 and VC MIPI overlays.
 
 set -Eeuo pipefail
 
@@ -9,6 +9,7 @@ export PATH="/usr/sbin:/sbin:${PATH}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KERNEL_SRC="${SCRIPT_DIR}/kernel/kernel-4.9"
 DT_DIR="${SCRIPT_DIR}/hardware/nvidia/platform/t210/porg/kernel-dts"
+JETSON_IO_SOURCE="${SCRIPT_DIR}/../Linux_for_Tegra/source/public/nvidia-l4t-jetson-io-32.7.6-20241104234540/rootfs/opt/nvidia/jetson-io"
 BASE_DTB="${SCRIPT_DIR}/../Linux_for_Tegra/kernel/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
 TOOLCHAIN_ROOT="${CROSS_COMPILE_AARCH64_PATH:-${SCRIPT_DIR}/../gcc}"
 CROSS_COMPILE="${TOOLCHAIN_ROOT}/bin/aarch64-linux-gnu-"
@@ -33,7 +34,10 @@ Options:
   --ccache-dir DIR             Persistent ccache directory (default: /home/liaic/ccache/jetson-kernel)
   -h, --help                   Show this help
 
-It emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
+VC MIPI is always built in and includes the Stage 2 forced-model and independent
+I2C-address support. The DTB package also carries metadata-driven Auto Detect,
+IMX296, IMX412, and IMX565 Jetson-IO profiles. It
+emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
 <output>/deb/ (OUTPUT defaults to out/ov5647-MODE). The pristine NVIDIA
 packages under Linux_for_Tegra/kernel/ are used as packaging templates. By
 default, the resulting debs replace the two kernel package files there and
@@ -136,6 +140,14 @@ COMPILER_VERSION="$(${CROSS_COMPILE}gcc --version | head -n1)"
 	die "expected Linaro GCC 7.3.1 2018.05, got: $COMPILER_VERSION"
 [[ -d "$KERNEL_SRC" ]] || die "kernel source missing: $KERNEL_SRC"
 [[ -f "$DT_DIR/tegra210-p3448-common-ov5647.dts" ]] || die "OV5647 overlay source missing"
+[[ -f "$DT_DIR/tegra210-p3448-common-vc-mipi.dts" ]] || die "VC MIPI overlay source missing"
+for profile in auto imx296 imx412 imx565; do
+	[[ -f "$DT_DIR/tegra210-p3448-camera-vc-mipi-${profile}.dts" ]] || \
+		die "VC MIPI ${profile} profile source missing"
+done
+for source in jetson-io.py config-by-hardware.py Utils/vc_profiles.py; do
+	[[ -f "$JETSON_IO_SOURCE/$source" ]] || die "Jetson-IO Stage 2 source missing: $source"
+done
 [[ -f "$BASE_DTB" ]] || die "shipping A02 audit DTB missing: $BASE_DTB"
 
 SOURCE_DATE_EPOCH="$(git -C "$SCRIPT_DIR" show -s --format=%ct HEAD)"
@@ -156,7 +168,7 @@ MAKE_ARGS=(
 	'the-space=$(space)'
 )
 
-echo "OV5647 kernel build"
+echo "OV5647 + VC MIPI Stage 2 kernel build"
 echo "source: $SCRIPT_DIR"
 echo "output: $OUTPUT"
 echo "driver mode: $DRIVER_MODE"
@@ -182,6 +194,12 @@ KERNEL_RELEASE="$(make "${MAKE_ARGS[@]}" -s kernelrelease)"
 	die "unexpected kernel release: $KERNEL_RELEASE"
 
 CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_OV5647)"
+VC_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state NV_VIDEO_VC_MIPI)"
+[[ "$VC_CONFIG_STATE" == y ]] || die "CONFIG_NV_VIDEO_VC_MIPI is not built in"
+for symbol in vc_probe vc_core_init vc_mod_set_mode vc_mod_id_supported vc_core_release; do
+	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | grep -E " [tT] ${symbol}$" >/dev/null ||
+		die "VC MIPI symbol is absent from vmlinux: $symbol"
+done
 if [[ "$DRIVER_MODE" == builtin ]]; then
 	[[ "$CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_OV5647 is not built in"
 	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
@@ -193,8 +211,21 @@ else
 		die "ov5647.ko was not built"
 fi
 
-DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov5647.dtbo"
-[[ -s "$DTBO" ]] || die "OV5647 DTBO missing: $DTBO"
+OV5647_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov5647.dtbo"
+VC_MIPI_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-vc-mipi.dtbo"
+VC_PROFILE_SPECS=(
+	"auto|Camera VC MIPI (Custom) / Auto Detect|Auto Detect||2|0|0|1.000|1.000|60000"
+	"imx296|Camera VC MIPI (Custom) / IMX296|IMX296|296|1|1440|1080|4.968|3.726|60300"
+	"imx412|Camera VC MIPI (Custom) / IMX412|IMX412|412|2|4032|3040|6.250|4.712|20000"
+	"imx565|Camera VC MIPI (Custom) / IMX565|IMX565|565|2|4128|3000|11.311|8.220|17000"
+)
+[[ -s "$OV5647_DTBO" ]] || die "OV5647 DTBO missing: $OV5647_DTBO"
+[[ -s "$VC_MIPI_DTBO" ]] || die "VC MIPI DTBO missing: $VC_MIPI_DTBO"
+for spec in "${VC_PROFILE_SPECS[@]}"; do
+	IFS='|' read -r profile _ <<< "$spec"
+	[[ -s "$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-camera-vc-mipi-${profile}.dtbo" ]] || \
+		die "VC MIPI ${profile} profile DTBO missing"
+done
 
 rm -rf -- "$STAGE_DIR" "$PACKAGE_ROOT"
 mkdir -p "$STAGE_DIR" "$PACKAGE_ROOT/boot" \
@@ -208,7 +239,14 @@ rm -f "$STAGE_DIR/lib/modules/$KERNEL_RELEASE/build" \
 	"$STAGE_DIR/lib/modules/$KERNEL_RELEASE/source"
 
 install -m 0644 "$BUILD_DIR/arch/arm64/boot/Image" "$PACKAGE_ROOT/boot/Image"
-install -m 0644 "$DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov5647.dtbo"
+install -m 0644 "$OV5647_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov5647.dtbo"
+install -m 0644 "$VC_MIPI_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-vc-mipi.dtbo"
+for spec in "${VC_PROFILE_SPECS[@]}"; do
+	IFS='|' read -r profile _ <<< "$spec"
+	install -m 0644 \
+		"$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-camera-vc-mipi-${profile}.dtbo" \
+		"$PACKAGE_ROOT/boot/tegra210-p3448-camera-vc-mipi-${profile}.dtbo"
+done
 cp -a "$STAGE_DIR/lib/modules/$KERNEL_RELEASE" "$PACKAGE_ROOT/lib/modules/"
 install -m 0644 "$BUILD_DIR/.config" "$PACKAGE_ROOT/metadata/kernel.config"
 install -m 0644 "$BUILD_DIR/System.map" "$PACKAGE_ROOT/metadata/System.map"
@@ -218,17 +256,61 @@ SOURCE_FILES=(
 	build-ov5647.sh
 	hardware/nvidia/platform/t210/porg/kernel-dts/Makefile
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov5647.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-vc-mipi.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-profile.dtsi
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-auto.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-imx296.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-imx412.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-imx565.dts
+	jetson-io-package/DEBIAN/control
+	jetson-io-package/DEBIAN/preinst
+	jetson-io-package/DEBIAN/postrm
+	kernel/kernel-4.9/Documentation/media/uapi/v4l/pixfmt-y14.rst
+	kernel/kernel-4.9/Documentation/media/uapi/v4l/yuv-formats.rst
 	kernel/kernel-4.9/arch/arm64/configs/tegra_defconfig
 	kernel/kernel-4.9/drivers/gpio/gpio-tegra.c
+	kernel/kernel-4.9/drivers/media/v4l2-core/v4l2-ioctl.c
+	kernel/kernel-4.9/drivers/media/v4l2-core/videobuf2-v4l2.c
+	kernel/kernel-4.9/include/media/v4l2-subdev.h
+	kernel/kernel-4.9/include/media/videobuf2-v4l2.h
+	kernel/kernel-4.9/include/uapi/linux/media-bus-format.h
+	kernel/kernel-4.9/include/uapi/linux/videodev2.h
 	kernel/nvidia/drivers/media/i2c/Kconfig
 	kernel/nvidia/drivers/media/i2c/Makefile
 	kernel/nvidia/drivers/media/i2c/ov5647.c
 	kernel/nvidia/drivers/media/i2c/ov5647_mode_tbls.h
+	kernel/nvidia/drivers/media/i2c/vc_mipi_camera.c
+	kernel/nvidia/drivers/media/i2c/vc_mipi_core.c
+	kernel/nvidia/drivers/media/i2c/vc_mipi_core.h
+	kernel/nvidia/drivers/media/i2c/vc_mipi_modules.c
+	kernel/nvidia/drivers/media/i2c/vc_mipi_modules.h
+	kernel/nvidia/drivers/media/platform/tegra/camera/camera_common.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/csi/csi2_fops.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/csi/csi4_fops.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/sensor_common.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/tegracam_ctrls.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/tegracam_v4l2.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/vi/channel.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/vi/vi2_fops.c
+	kernel/nvidia/drivers/media/platform/tegra/camera/vi/vi2_formats.h
+	kernel/nvidia/drivers/video/tegra/host/nvhost_syncpt.c
+	kernel/nvidia/drivers/video/tegra/host/nvhost_syncpt.h
+	kernel/nvidia/include/linux/nvhost.h
+	kernel/nvidia/include/media/camera_common.h
+	kernel/nvidia/include/media/mc_common.h
+	kernel/nvidia/include/media/tegra-v4l2-camera.h
 )
 (
 	cd "$SCRIPT_DIR"
 	cp --parents "${SOURCE_FILES[@]}" "$PACKAGE_ROOT/metadata/source/"
 )
+mkdir -p "$PACKAGE_ROOT/metadata/source/Linux_for_Tegra/jetson-io/Utils"
+install -m 0644 "$JETSON_IO_SOURCE/jetson-io.py" \
+	"$PACKAGE_ROOT/metadata/source/Linux_for_Tegra/jetson-io/jetson-io.py"
+install -m 0644 "$JETSON_IO_SOURCE/config-by-hardware.py" \
+	"$PACKAGE_ROOT/metadata/source/Linux_for_Tegra/jetson-io/config-by-hardware.py"
+install -m 0644 "$JETSON_IO_SOURCE/Utils/vc_profiles.py" \
+	"$PACKAGE_ROOT/metadata/source/Linux_for_Tegra/jetson-io/Utils/vc_profiles.py"
 
 if [[ "$DRIVER_MODE" == builtin ]] && \
 	[[ -n "$(find "$PACKAGE_ROOT/lib/modules" -type f -name ov5647.ko -print -quit)" ]]; then
@@ -253,19 +335,19 @@ install -m 0644 "$DT_DIR/tegra210-p3448-common-ov5647.dts" "$OVERLAY_DTS"
 	cat "$OVERLAY_WARNINGS" >&2
 	die "OV5647 overlay emits dtc warnings"
 }
-cmp -s "$DTBO" "$OVERLAY_AUDIT_DTBO" || \
+cmp -s "$OV5647_DTBO" "$OVERLAY_AUDIT_DTBO" || \
 	die "standalone overlay audit does not match the Kbuild DTBO"
 
-[[ "$(fdtget -t s "$DTBO" / overlay-name)" == "Camera OV5647" ]] || \
+[[ "$(fdtget -t s "$OV5647_DTBO" / overlay-name)" == "Camera OV5647" ]] || \
 	die "incorrect Jetson-IO overlay name"
-[[ "$(fdtget -t s "$DTBO" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
+[[ "$(fdtget -t s "$OV5647_DTBO" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
 	die "incorrect Jetson-IO header name"
-[[ "$(fdtget -t s "$DTBO" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
+[[ "$(fdtget -t s "$OV5647_DTBO" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
 	die "incorrect A02 compatibility string"
 
 MERGED_DTB="$META_DIR/a02-ov5647-audit.dtb"
 MERGED_DTS="$PACKAGE_ROOT/metadata/a02-ov5647-merged-audit.dts"
-fdtoverlay -i "$BASE_DTB" -o "$MERGED_DTB" "$DTBO"
+fdtoverlay -i "$BASE_DTB" -o "$MERGED_DTB" "$OV5647_DTBO"
 dtc -I dtb -O dts -o "$MERGED_DTS" "$MERGED_DTB" 2>"$META_DIR/merged-dtc-warnings.log"
 
 symbol_path() {
@@ -310,6 +392,10 @@ for mode in 0 1 2 3; do
 		die "mode${mode} does not declare the documented 24 MHz input clock"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" num_lanes)" == 2 ]] || \
 		die "mode${mode} is not two-lane"
+	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" active_l)" == 0 ]] || \
+		die "mode${mode} crop-left origin is not zero"
+	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" active_t)" == 0 ]] || \
+		die "mode${mode} crop-top origin is not zero"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" tegra_sinterface)" == serial_a ]] || \
 		die "mode${mode} does not use CSI-A"
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" pixel_t)" == bayer_bggr10 ]] || \
@@ -317,6 +403,212 @@ for mode in 0 1 2 3; do
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" pixel_phase)" == bggr ]] || \
 		die "mode${mode} pixel_phase is not BGGR"
 done
+
+VC_OVERLAY_DTS="$PACKAGE_ROOT/metadata/tegra210-p3448-common-vc-mipi.overlay.dts"
+VC_OVERLAY_CPP="$META_DIR/tegra210-p3448-common-vc-mipi.preprocessed.dts"
+VC_OVERLAY_AUDIT_DTBO="$META_DIR/tegra210-p3448-common-vc-mipi.audit.dtbo"
+VC_OVERLAY_WARNINGS="$META_DIR/vc-mipi-overlay-dtc-warnings.log"
+install -m 0644 "$DT_DIR/tegra210-p3448-common-vc-mipi.dts" "$VC_OVERLAY_DTS"
+"${CROSS_COMPILE}gcc" -E -nostdinc \
+	-I"$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-undef -D__DTS__ -x assembler-with-cpp \
+	-o "$VC_OVERLAY_CPP" "$DT_DIR/tegra210-p3448-common-vc-mipi.dts"
+"$BUILD_DIR/scripts/dtc/dtc" -@ -I dts -O dtb -b 0 \
+	-i "$DT_DIR" \
+	-i "$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-Wno-unit_address_vs_reg -o "$VC_OVERLAY_AUDIT_DTBO" "$VC_OVERLAY_CPP" \
+	2>"$VC_OVERLAY_WARNINGS"
+[[ ! -s "$VC_OVERLAY_WARNINGS" ]] || {
+	cat "$VC_OVERLAY_WARNINGS" >&2
+	die "VC MIPI overlay emits dtc warnings"
+}
+cmp -s "$VC_MIPI_DTBO" "$VC_OVERLAY_AUDIT_DTBO" || \
+	die "standalone VC MIPI overlay audit does not match the Kbuild DTBO"
+
+[[ "$(fdtget -t s "$VC_MIPI_DTBO" / overlay-name)" == "Camera VC MIPI" ]] || \
+	die "incorrect VC MIPI Jetson-IO overlay name"
+[[ "$(fdtget -t s "$VC_MIPI_DTBO" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
+	die "incorrect VC MIPI Jetson-IO header name"
+[[ "$(fdtget -t s "$VC_MIPI_DTBO" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
+	die "incorrect VC MIPI A02 compatibility string"
+
+VC_MERGED_DTB="$META_DIR/a02-vc-mipi-audit.dtb"
+VC_MERGED_DTS="$PACKAGE_ROOT/metadata/a02-vc-mipi-merged-audit.dts"
+fdtoverlay -i "$BASE_DTB" -o "$VC_MERGED_DTB" "$VC_MIPI_DTBO"
+dtc -I dtb -O dts -o "$VC_MERGED_DTS" "$VC_MERGED_DTB" \
+	2>"$META_DIR/vc-mipi-merged-dtc-warnings.log"
+
+vc_symbol_path() {
+	fdtget -t s "$VC_MERGED_DTB" /__symbols__ "$1"
+}
+vc_assert_status() {
+	local symbol="$1"
+	local expected="$2"
+	local path
+	path="$(vc_symbol_path "$symbol")"
+	[[ "$(fdtget -t s "$VC_MERGED_DTB" "$path" status)" == "$expected" ]] || \
+		die "$symbol does not have status=$expected after VC overlay merge"
+}
+
+vc_assert_status vc_mipi_cam0 okay
+vc_assert_status imx219_single_cam0 disabled
+vc_assert_status imx477_single_cam0 disabled
+vc_assert_status cam_module0_drivernode1 disabled
+
+VC_SENSOR="$(vc_symbol_path vc_mipi_cam0)"
+[[ "$(fdtget -t s "$VC_MERGED_DTB" "$VC_SENSOR" compatible)" == nvidia,vc_mipi ]] || \
+	die "VC MIPI sensor compatible is incorrect"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_SENSOR" reg)" == 1a ]] || \
+	die "VC MIPI sensor must use I2C address 0x1a"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_SENSOR" vc,controller-address)" == 10 ]] || \
+	die "VC MIPI controller address must be 0x10"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_SENSOR" vc,sensor-address)" == 1a ]] || \
+	die "VC MIPI configured sensor address must be 0x1a"
+[[ "$(fdtget -t s "$VC_MERGED_DTB" "$VC_SENSOR" num_lanes)" == 2 ]] || \
+	die "VC MIPI sensor is not configured for two CSI lanes"
+[[ "$(fdtget -t s "$VC_MERGED_DTB" "$VC_SENSOR/mode0" tegra_sinterface)" == serial_a ]] || \
+	die "VC MIPI sensor does not use CSI-A"
+
+VC_ENDPOINT="$(vc_symbol_path vc_mipi_out0)"
+VC_CSI_IN="$(vc_symbol_path rbpcv2_imx219_csi_in0)"
+VC_CSI_OUT="$(vc_symbol_path rbpcv2_imx219_csi_out0)"
+VC_VI_IN="$(vc_symbol_path rbpcv2_imx219_vi_in0)"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_ENDPOINT" remote-endpoint)" == \
+	"$(fdtget -t x "$VC_MERGED_DTB" "$VC_CSI_IN" phandle)" ]] || \
+	die "VC-sensor-to-NVCSI graph is not reciprocal"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_CSI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$VC_MERGED_DTB" "$VC_ENDPOINT" phandle)" ]] || \
+	die "VC-NVCSI-to-sensor graph is not reciprocal"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_CSI_OUT" remote-endpoint)" == \
+	"$(fdtget -t x "$VC_MERGED_DTB" "$VC_VI_IN" phandle)" ]] || \
+	die "VC-NVCSI-to-VI graph is not reciprocal"
+[[ "$(fdtget -t x "$VC_MERGED_DTB" "$VC_VI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$VC_MERGED_DTB" "$VC_CSI_OUT" phandle)" ]] || \
+	die "VC-VI-to-NVCSI graph is not reciprocal"
+
+VC_DRIVERNODE="$(vc_symbol_path cam_module0_drivernode0)"
+[[ "$(fdtget -t s "$VC_MERGED_DTB" "$VC_DRIVERNODE" devname)" == "vc_mipi 6-001a" ]] || \
+	die "VC MIPI camera-platform devname is incorrect"
+[[ "$(fdtget -t s "$VC_MERGED_DTB" "$VC_DRIVERNODE" proc-device-tree)" == \
+	"/proc/device-tree/host1x/i2c@546c0000/vc_mipi@1a" ]] || \
+	die "VC MIPI camera-platform device-tree path is incorrect"
+
+echo "Auditing VC MIPI Stage 2 profile overlays"
+for spec in "${VC_PROFILE_SPECS[@]}"; do
+	IFS='|' read -r profile overlay_name profile_model force_id lanes active_w active_h physical_w physical_h max_framerate <<< "$spec"
+	profile_dts="$DT_DIR/tegra210-p3448-camera-vc-mipi-${profile}.dts"
+	profile_dtbo="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-camera-vc-mipi-${profile}.dtbo"
+	profile_cpp="$META_DIR/tegra210-p3448-camera-vc-mipi-${profile}.preprocessed.dts"
+	profile_audit_dtbo="$META_DIR/tegra210-p3448-camera-vc-mipi-${profile}.audit.dtbo"
+	profile_warnings="$META_DIR/tegra210-p3448-camera-vc-mipi-${profile}.dtc-warnings.log"
+	profile_merged="$META_DIR/a02-vc-mipi-${profile}-audit.dtb"
+
+	"${CROSS_COMPILE}gcc" -E -nostdinc \
+		-I"$DT_DIR" \
+		-I"$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+		-undef -D__DTS__ -x assembler-with-cpp \
+		-o "$profile_cpp" "$profile_dts"
+	"$BUILD_DIR/scripts/dtc/dtc" -@ -I dts -O dtb -b 0 \
+		-i "$DT_DIR" \
+		-i "$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+		-Wno-unit_address_vs_reg -o "$profile_audit_dtbo" "$profile_cpp" \
+		2>"$profile_warnings"
+	[[ ! -s "$profile_warnings" ]] || {
+		cat "$profile_warnings" >&2
+		die "VC MIPI ${profile} profile emits dtc warnings"
+	}
+	cmp -s "$profile_dtbo" "$profile_audit_dtbo" || \
+		die "VC MIPI ${profile} standalone audit differs from Kbuild"
+
+	[[ "$(fdtget -t s "$profile_dtbo" / overlay-name)" == "$overlay_name" ]] || \
+		die "VC MIPI ${profile} overlay name mismatch"
+	[[ "$(fdtget -t s "$profile_dtbo" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
+		die "VC MIPI ${profile} Jetson-IO header mismatch"
+	[[ "$(fdtget -t s "$profile_dtbo" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
+		die "VC MIPI ${profile} A02 compatibility mismatch"
+	[[ "$(fdtget -t s "$profile_dtbo" / vc-mipi-profile)" == custom ]] || \
+		die "VC MIPI ${profile} grouping metadata mismatch"
+	[[ "$(fdtget -t s "$profile_dtbo" / vc-mipi-parent)" == "Camera VC MIPI (Custom)" ]] || \
+		die "VC MIPI ${profile} parent metadata mismatch"
+	[[ "$(fdtget -t s "$profile_dtbo" / vc-mipi-model)" == "$profile_model" ]] || \
+		die "VC MIPI ${profile} model metadata mismatch"
+
+	fdtoverlay -i "$BASE_DTB" -o "$profile_merged" "$profile_dtbo"
+	profile_sensor="$(fdtget -t s "$profile_merged" /__symbols__ vc_mipi_cam0)"
+	profile_endpoint="$(fdtget -t s "$profile_merged" /__symbols__ vc_mipi_out0)"
+	profile_csi_in="$(fdtget -t s "$profile_merged" /__symbols__ rbpcv2_imx219_csi_in0)"
+	profile_csi_out="$(fdtget -t s "$profile_merged" /__symbols__ rbpcv2_imx219_csi_out0)"
+	profile_vi_in="$(fdtget -t s "$profile_merged" /__symbols__ rbpcv2_imx219_vi_in0)"
+
+	[[ "$(fdtget -t x "$profile_merged" "$profile_sensor" reg)" == 1a ]] || \
+		die "VC MIPI ${profile} DT reg is not sensor address 0x1a"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_sensor" vc,controller-address)" == 10 ]] || \
+		die "VC MIPI ${profile} controller address mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_sensor" vc,sensor-address)" == 1a ]] || \
+		die "VC MIPI ${profile} sensor address mismatch"
+	if [[ -n "$force_id" ]]; then
+		[[ "$(fdtget -t x "$profile_merged" "$profile_sensor" vc,force-mod-id)" == "$force_id" ]] || \
+			die "VC MIPI ${profile} forced module ID mismatch"
+	elif fdtget "$profile_merged" "$profile_sensor" vc,force-mod-id >/dev/null 2>&1; then
+		die "VC MIPI Auto Detect profile unexpectedly forces a module ID"
+	fi
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor" num_lanes)" == "$lanes" ]] || \
+		die "VC MIPI ${profile} sensor lane count mismatch"
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor/mode0" active_w)" == "$active_w" ]] || \
+		die "VC MIPI ${profile} active width mismatch"
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor/mode0" active_h)" == "$active_h" ]] || \
+		die "VC MIPI ${profile} active height mismatch"
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor" physical_w)" == "$physical_w" ]] || \
+		die "VC MIPI ${profile} physical width mismatch"
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor" physical_h)" == "$physical_h" ]] || \
+		die "VC MIPI ${profile} physical height mismatch"
+	[[ "$(fdtget -t s "$profile_merged" "$profile_sensor/mode0" max_framerate)" == "$max_framerate" ]] || \
+		die "VC MIPI ${profile} maximum frame rate mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_endpoint" bus-width)" == "$lanes" ]] || \
+		die "VC MIPI ${profile} endpoint lane count mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_endpoint" remote-endpoint)" == \
+		"$(fdtget -t x "$profile_merged" "$profile_csi_in" phandle)" ]] || \
+		die "VC MIPI ${profile} sensor-to-NVCSI graph mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_csi_in" remote-endpoint)" == \
+		"$(fdtget -t x "$profile_merged" "$profile_endpoint" phandle)" ]] || \
+		die "VC MIPI ${profile} NVCSI-to-sensor graph mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_csi_out" remote-endpoint)" == \
+		"$(fdtget -t x "$profile_merged" "$profile_vi_in" phandle)" ]] || \
+		die "VC MIPI ${profile} NVCSI-to-VI graph mismatch"
+	[[ "$(fdtget -t x "$profile_merged" "$profile_vi_in" remote-endpoint)" == \
+		"$(fdtget -t x "$profile_merged" "$profile_csi_out" phandle)" ]] || \
+		die "VC MIPI ${profile} VI-to-NVCSI graph mismatch"
+	dtc -I dtb -O dts -o "$PACKAGE_ROOT/metadata/a02-vc-mipi-${profile}-merged-audit.dts" \
+		"$profile_merged" 2>"$META_DIR/a02-vc-mipi-${profile}-merged-warnings.log"
+done
+
+python3 -m py_compile \
+	"$JETSON_IO_SOURCE/jetson-io.py" \
+	"$JETSON_IO_SOURCE/config-by-hardware.py" \
+	"$JETSON_IO_SOURCE/Utils/vc_profiles.py"
+BUILD_DIR="$BUILD_DIR" PYTHONPATH="$JETSON_IO_SOURCE" python3 - "${VC_PROFILE_SPECS[@]}" <<'PY'
+import os
+import sys
+from Utils import vc_profiles
+
+build_dir = os.environ['BUILD_DIR']
+addons = {'Camera VC MIPI': os.path.join(
+    build_dir, 'arch/arm64/boot/dts/tegra210-p3448-common-vc-mipi.dtbo')}
+for spec in sys.argv[1:]:
+    profile, name = spec.split('|', 2)[:2]
+    addons[name] = os.path.join(
+        build_dir, 'arch/arm64/boot/dts/',
+        'tegra210-p3448-camera-vc-mipi-%s.dtbo' % profile)
+
+ordinary, groups = vc_profiles.group(addons)
+assert ordinary == ['Camera VC MIPI']
+parent = 'Camera VC MIPI (Custom)'
+assert [entry['model'] for entry in groups[parent]] == [
+    'IMX296', 'IMX412', 'IMX565', 'Auto Detect']
+for model in ('IMX296', 'IMX412', 'IMX565', 'Auto Detect'):
+    assert vc_profiles.resolve(addons, '%s/%s' % (parent, model))
+assert vc_profiles.resolve(addons, parent) is None
+PY
 
 {
 	echo -e "field\tvalue"
@@ -347,7 +639,7 @@ install -m 0644 "$LOG_FILE" "$PACKAGE_ROOT/metadata/build.log"
 	} > metadata/manifest.tsv
 )
 
-ARCHIVE="$OUTPUT/jetson-nano-a02-r32.7.6-ov5647-${DRIVER_MODE}.tar.gz"
+ARCHIVE="$OUTPUT/jetson-nano-a02-r32.7.6-ov5647-vc-mipi-stage2-${DRIVER_MODE}.tar.gz"
 tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
 	-C "$PACKAGE_ROOT" -czf "$ARCHIVE" boot lib metadata
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
@@ -379,7 +671,7 @@ dpkg-deb -e "$OFFICIAL_KERNEL_DEB" "$KERNEL_PAYLOAD/DEBIAN"
 dpkg-deb -x "$OFFICIAL_DTBS_DEB" "$DTBS_PAYLOAD"
 dpkg-deb -e "$OFFICIAL_DTBS_DEB" "$DTBS_PAYLOAD/DEBIAN"
 
-# Replace the official kernel image and modules with this OV5647 build.
+# Replace the official kernel image and modules with this camera-driver build.
 if [[ -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep" ]]; then
 	install -m 0644 "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep" \
 		"$MODULES_SOFTDEP"
@@ -396,8 +688,15 @@ if [[ -f "$MODULES_SOFTDEP" ]]; then
 		"$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
 fi
 
-# Append the OV5647 Jetson-IO overlay to the official dtbs payload.
-install -m 0644 "$DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+# Append both camera Jetson-IO overlays to the official dtbs payload.
+install -m 0644 "$OV5647_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+install -m 0644 "$VC_MIPI_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
+for spec in "${VC_PROFILE_SPECS[@]}"; do
+	IFS='|' read -r profile _ <<< "$spec"
+	install -m 0644 \
+		"$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-camera-vc-mipi-${profile}.dtbo" \
+		"$DTBS_PAYLOAD/boot/tegra210-p3448-camera-vc-mipi-${profile}.dtbo"
+done
 
 # The NVIDIA md5sums no longer match the payload; let dpkg-deb regenerate them.
 rm -f "$KERNEL_PAYLOAD/DEBIAN/md5sums" "$DTBS_PAYLOAD/DEBIAN/md5sums"
@@ -426,11 +725,47 @@ test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.dep"
 test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-0000-p3449-0000-a02.dtb"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
+for spec in "${VC_PROFILE_SPECS[@]}"; do
+	IFS='|' read -r profile _ <<< "$spec"
+	test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-camera-vc-mipi-${profile}.dtbo"
+done
+
+echo "Building Jetson-IO VC MIPI Stage 2 companion package"
+JETSON_IO_DEB_VERSION="32.7.6-1stage2"
+JETSON_IO_PAYLOAD="${DEB_STAGE}/payload/jetson-io-vc-mipi-profiles"
+OUT_JETSON_IO_DEB="${DEB_STAGE}/jetson-io-vc-mipi-profiles_${JETSON_IO_DEB_VERSION}_all.deb"
+rm -rf "$JETSON_IO_PAYLOAD"
+mkdir -p "$JETSON_IO_PAYLOAD/DEBIAN" \
+	"$JETSON_IO_PAYLOAD/opt/nvidia/jetson-io/Utils"
+install -m 0644 "$SCRIPT_DIR/jetson-io-package/DEBIAN/control" \
+	"$JETSON_IO_PAYLOAD/DEBIAN/control"
+install -m 0755 "$SCRIPT_DIR/jetson-io-package/DEBIAN/preinst" \
+	"$JETSON_IO_PAYLOAD/DEBIAN/preinst"
+install -m 0755 "$SCRIPT_DIR/jetson-io-package/DEBIAN/postrm" \
+	"$JETSON_IO_PAYLOAD/DEBIAN/postrm"
+install -m 0755 "$JETSON_IO_SOURCE/jetson-io.py" \
+	"$JETSON_IO_PAYLOAD/opt/nvidia/jetson-io/jetson-io.py"
+install -m 0755 "$JETSON_IO_SOURCE/config-by-hardware.py" \
+	"$JETSON_IO_PAYLOAD/opt/nvidia/jetson-io/config-by-hardware.py"
+install -m 0644 "$JETSON_IO_SOURCE/Utils/vc_profiles.py" \
+	"$JETSON_IO_PAYLOAD/opt/nvidia/jetson-io/Utils/vc_profiles.py"
+rm -f "$OUT_JETSON_IO_DEB"
+dpkg-deb --build -Zxz --root-owner-group "$JETSON_IO_PAYLOAD" "$OUT_JETSON_IO_DEB"
+[[ "$(dpkg-deb -f "$OUT_JETSON_IO_DEB" Package)" == jetson-io-vc-mipi-profiles ]] || \
+	die "Jetson-IO profile package name mismatch"
+[[ "$(dpkg-deb -f "$OUT_JETSON_IO_DEB" Version)" == "$JETSON_IO_DEB_VERSION" ]] || \
+	die "Jetson-IO profile package version mismatch"
+[[ "$(dpkg-deb -f "$OUT_JETSON_IO_DEB" Architecture)" == all ]] || \
+	die "Jetson-IO profile package architecture mismatch"
+test -f "$JETSON_IO_PAYLOAD/opt/nvidia/jetson-io/Utils/vc_profiles.py"
 
 sha256sum "$OUT_KERNEL_DEB" > "${OUT_KERNEL_DEB}.sha256"
 sha256sum "$OUT_DTBS_DEB" > "${OUT_DTBS_DEB}.sha256"
+sha256sum "$OUT_JETSON_IO_DEB" > "${OUT_JETSON_IO_DEB}.sha256"
 echo "kernel deb: $OUT_KERNEL_DEB"
 echo "dtbs deb:   $OUT_DTBS_DEB"
+echo "Jetson-IO Stage 2 deb: $OUT_JETSON_IO_DEB"
 
 if ((UPDATE_PACKAGE_LOCK)); then
 	PACKAGE_LOCK="${SCRIPT_DIR}/../Linux_for_Tegra/tools/jetson-jammy/package-lock.tsv"
@@ -490,7 +825,7 @@ else
 	echo "package lock update disabled; Linux_for_Tegra/kernel/ left unchanged"
 fi
 
-rm -f "$MERGED_DTB"
+rm -f "$MERGED_DTB" "$VC_MERGED_DTB" "$META_DIR"/a02-vc-mipi-*-audit.dtb
 echo "build complete: $ARCHIVE"
 echo "checksum: $ARCHIVE.sha256"
 echo "staging tree: $PACKAGE_ROOT"

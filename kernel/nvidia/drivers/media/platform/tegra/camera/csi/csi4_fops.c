@@ -91,6 +91,15 @@ static void csi4_stream_init(struct tegra_csi_channel *chan, int csi_port)
 	csi4_stream_write(chan, csi_port, ERROR_STATUS2VI_MASK, 0x0);
 	csi4_stream_write(chan, csi_port, INTR_MASK, 0x0);
 	csi4_stream_write(chan, csi_port, ERR_INTR_MASK, 0x0);
+	csi4_stream_write(chan, csi_port, INTR_MASK, PH_ECC_MULTI_BIT_ERR |
+					  PD_CRC_ERR_VC0 | PH_ECC_SINGLE_BIT_ERR_VC0);
+	csi4_stream_write(chan, csi_port, ERR_INTR_MASK, PH_ECC_MULTI_BIT_ERR |
+					  PD_CRC_ERR_VC0 | PH_ECC_SINGLE_BIT_ERR_VC0);
+	csi4_stream_write(chan, csi_port, ERROR_STATUS2VI_MASK,
+					  CFG_ERR_STATUS2VI_MASK_VC0 |
+					  CFG_ERR_STATUS2VI_MASK_VC1 |
+					  CFG_ERR_STATUS2VI_MASK_VC2 |
+					  CFG_ERR_STATUS2VI_MASK_VC3);
 }
 
 static void csi4_stream_config(struct tegra_csi_channel *chan, int port_idx)

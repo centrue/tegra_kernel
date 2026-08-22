@@ -174,6 +174,59 @@ static struct v4l2_ctrl_config ctrl_cfg_list[] = {
 		.max = STEREO_EEPROM_SIZE,
 		.step = 2,
 	},
+	{
+		.ops = &tegracam_ctrl_ops,
+		.id = TEGRA_CAMERA_CID_TRIGGER_MODE,
+		.name = "Trigger Mode",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = 0,
+		.min = 0,
+		.max = 7,
+		.step = 1,
+	},
+	{
+		.ops = &tegracam_ctrl_ops,
+		.id = TEGRA_CAMERA_CID_IO_MODE,
+		.name = "IO Mode",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = 0,
+		.min = 0,
+		.max = 5,
+		.step = 1,
+	},
+	{
+		.ops = &tegracam_ctrl_ops,
+		.id = TEGRA_CAMERA_CID_BLACK_LEVEL,
+		.name = "Black Level",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = V4L2_CTRL_FLAG_SLIDER,
+		.min = 0,
+		.max = 100000,
+		.def = 0,
+		.step = 1,
+	},
+	{
+		.ops = &tegracam_ctrl_ops,
+		.id = TEGRA_CAMERA_CID_SINGLE_TRIGGER,
+		.name = "Single Trigger",
+		.type = V4L2_CTRL_TYPE_BUTTON,
+		.flags = 0,
+		.min = 0,
+		.max = 1,
+		.def = 0,
+		.step = 1,
+	},
+	{
+		.ops = &tegracam_ctrl_ops,
+		.id = TEGRA_CAMERA_CID_BINNING_MODE,
+		.name = "Binning Mode",
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = 0,
+		.min = 0,
+		.max = 7,
+		.def = 0,
+		.step = 1,
+	},
 };
 
 static int tegracam_get_ctrl_index(u32 cid)
@@ -307,6 +360,21 @@ static int tegracam_set_ctrls(struct tegracam_ctrl_handler *handler,
 
 	/* For controls that require sensor to be on */
 	switch (ctrl->id) {
+	case TEGRA_CAMERA_CID_TRIGGER_MODE:
+		err = ops->set_trigger_mode(tc_dev, *ctrl->p_new.p_s64);
+		break;
+	case TEGRA_CAMERA_CID_IO_MODE:
+		err = ops->set_io_mode(tc_dev, *ctrl->p_new.p_s64);
+		break;
+	case TEGRA_CAMERA_CID_BLACK_LEVEL:
+		err = ops->set_black_level(tc_dev, *ctrl->p_new.p_s64);
+		break;
+	case TEGRA_CAMERA_CID_SINGLE_TRIGGER:
+		err = ops->set_single_trigger(tc_dev, ctrl->val);
+		break;
+	case TEGRA_CAMERA_CID_BINNING_MODE:
+		err = ops->set_binning_mode(tc_dev, ctrl->val);
+		break;
 	case TEGRA_CAMERA_CID_GAIN:
 		err = ops->set_gain(tc_dev, *ctrl->p_new.p_s64);
 		break;
@@ -649,6 +717,41 @@ static int tegracam_check_ctrl_ops(
 	/* Find missing sensor controls */
 	for (i = 0; i < ops->numctrls; i++) {
 		switch (cids[i]) {
+		case TEGRA_CAMERA_CID_TRIGGER_MODE:
+			if (ops->set_trigger_mode == NULL)
+				dev_err(dev,
+					"Missing TEGRA_CAMERA_CID_TRIGGER_MODE implementation\n");
+			if (ops->set_trigger_mode != NULL)
+				sensor_ops++;
+			break;
+		case TEGRA_CAMERA_CID_IO_MODE:
+			if (ops->set_io_mode == NULL)
+				dev_err(dev,
+					"Missing TEGRA_CAMERA_CID_IO_MODE implementation\n");
+			if (ops->set_io_mode != NULL)
+				sensor_ops++;
+			break;
+		case TEGRA_CAMERA_CID_BLACK_LEVEL:
+			if (ops->set_black_level == NULL)
+				dev_err(dev,
+					"Missing TEGRA_CAMERA_CID_BLACK_LEVEL implementation\n");
+			if (ops->set_black_level != NULL)
+				sensor_ops++;
+			break;
+		case TEGRA_CAMERA_CID_SINGLE_TRIGGER:
+			if (ops->set_single_trigger == NULL)
+				dev_err(dev,
+					"Missing TEGRA_CAMERA_CID_SINGLE_TRIGGER implementation\n");
+			if (ops->set_single_trigger != NULL)
+				sensor_ops++;
+			break;
+		case TEGRA_CAMERA_CID_BINNING_MODE:
+			if (ops->set_binning_mode == NULL)
+				dev_err(dev,
+					"Missing TEGRA_CAMERA_CID_BINNING_MODE implementation\n");
+			if (ops->set_binning_mode != NULL)
+				sensor_ops++;
+			break;
 		case TEGRA_CAMERA_CID_GAIN:
 			if (ops->set_gain == NULL && ops->set_gain_ex == NULL)
 				dev_err(dev,
@@ -819,6 +922,51 @@ static int tegracam_check_ctrl_cids(struct tegracam_ctrl_handler *handler)
 	int errors_found = 0;
 
 	/* Find missing sensor control IDs */
+	if (ops->set_trigger_mode != NULL) {
+		if (!find_matching_cid(ops->ctrl_cid_list,
+			ops->numctrls,
+			TEGRA_CAMERA_CID_TRIGGER_MODE)) {
+			dev_err(dev, "Missing TEGRA_CAMERA_CID_TRIGGER_MODE registration\n");
+			errors_found++;
+		}
+	}
+
+	if (ops->set_io_mode != NULL) {
+		if (!find_matching_cid(ops->ctrl_cid_list,
+			ops->numctrls,
+			TEGRA_CAMERA_CID_IO_MODE)) {
+			dev_err(dev, "Missing TEGRA_CAMERA_CID_IO_MODE registration\n");
+			errors_found++;
+		}
+	}
+
+	if (ops->set_black_level != NULL) {
+		if (!find_matching_cid(ops->ctrl_cid_list,
+			ops->numctrls,
+			TEGRA_CAMERA_CID_BLACK_LEVEL)) {
+			dev_err(dev, "Missing TEGRA_CAMERA_CID_BLACK_LEVEL registration\n");
+			errors_found++;
+		}
+	}
+
+	if (ops->set_single_trigger != NULL) {
+		if (!find_matching_cid(ops->ctrl_cid_list,
+			ops->numctrls,
+			TEGRA_CAMERA_CID_SINGLE_TRIGGER)) {
+			dev_err(dev, "Missing TEGRA_CAMERA_CID_SINGLE_TRIGGER registration\n");
+			errors_found++;
+		}
+	}
+
+	if (ops->set_binning_mode != NULL) {
+		if (!find_matching_cid(ops->ctrl_cid_list,
+			ops->numctrls,
+			TEGRA_CAMERA_CID_BINNING_MODE)) {
+			dev_err(dev, "Missing TEGRA_CAMERA_CID_BINNING_MODE registration\n");
+			errors_found++;
+		}
+	}
+
 	if (ops->set_gain != NULL || ops->set_gain_ex != NULL) {
 		if (!find_matching_cid(ops->ctrl_cid_list,
 			ops->numctrls,

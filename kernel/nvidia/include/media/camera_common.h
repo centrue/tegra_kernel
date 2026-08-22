@@ -165,6 +165,8 @@ struct camera_common_data;
 struct camera_common_sensor_ops {
 	u32 numfrmfmts;
 	const struct camera_common_frmfmt *frmfmt_table;
+	/* Only universal sensors with runtime-allocated formats may resize it. */
+	bool dynamic_frmfmt;
 	int (*power_on)(struct camera_common_data *s_data);
 	int (*power_off)(struct camera_common_data *s_data);
 	int (*write_reg)(struct camera_common_data *s_data,
@@ -179,6 +181,7 @@ struct camera_common_sensor_ops {
 	int (*set_mode)(struct tegracam_device *tc_dev);
 	int (*start_streaming)(struct tegracam_device *tc_dev);
 	int (*stop_streaming)(struct tegracam_device *tc_dev);
+	int (*ready_to_stream)(struct tegracam_device *tc_dev);
 };
 
 struct tegracam_sensor_data {
@@ -192,6 +195,11 @@ struct tegracam_ctrl_ops {
 	u32 compound_ctrl_size[TEGRA_CAM_MAX_COMPOUND_CONTROLS];
 	const u32 *ctrl_cid_list;
 	bool is_blob_supported;
+	int (*set_trigger_mode)(struct tegracam_device *tc_dev, s64 val);
+	int (*set_io_mode)(struct tegracam_device *tc_dev, s64 val);
+	int (*set_black_level)(struct tegracam_device *tc_dev, s64 val);
+	int (*set_single_trigger)(struct tegracam_device *tc_dev, bool val);
+	int (*set_binning_mode)(struct tegracam_device *tc_dev, s64 val);
 	int (*set_gain)(struct tegracam_device *tc_dev, s64 val);
 	int (*set_exposure)(struct tegracam_device *tc_dev, s64 val);
 	int (*set_exposure_short)(struct tegracam_device *tc_dev, s64 val);

@@ -82,6 +82,11 @@ static const struct camera_common_colorfmt camera_common_color_fmts[] = {
 		V4L2_PIX_FMT_SRGGB8,
 	},
 	{
+		MEDIA_BUS_FMT_SGBRG8_1X8,
+		V4L2_COLORSPACE_SRGB,
+		V4L2_PIX_FMT_SGBRG8,
+	},
+	{
 		MEDIA_BUS_FMT_YUYV8_1X16,
 		V4L2_COLORSPACE_SRGB,
 		V4L2_PIX_FMT_YUYV,
@@ -125,6 +130,26 @@ static const struct camera_common_colorfmt camera_common_color_fmts[] = {
 		MEDIA_BUS_FMT_VYUY8_2X8,
 		V4L2_COLORSPACE_SRGB,
 		V4L2_PIX_FMT_VYUY,
+	},
+	{
+		MEDIA_BUS_FMT_Y8_1X8,
+		V4L2_COLORSPACE_RAW,
+		V4L2_PIX_FMT_GREY,
+	},
+	{
+		MEDIA_BUS_FMT_Y10_1X10,
+		V4L2_COLORSPACE_RAW,
+		V4L2_PIX_FMT_Y10,
+	},
+	{
+		MEDIA_BUS_FMT_Y12_1X12,
+		V4L2_COLORSPACE_RAW,
+		V4L2_PIX_FMT_Y12,
+	},
+	{
+		MEDIA_BUS_FMT_Y14_1X14,
+		V4L2_COLORSPACE_RAW,
+		V4L2_PIX_FMT_Y14,
 	},
 	/*
 	 * The below two formats are not supported by VI4,
@@ -633,8 +658,10 @@ int camera_common_try_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf)
 			mf->width = s_data->fmt_width;
 			mf->height = s_data->fmt_height;
 			dev_dbg(sd->dev,
-				"%s: invalid resolution %d x %d\n",
-				__func__, mf->width, mf->height);
+				"%s: invalid resolution %d x %d (expected: %d x %d)\n",
+				__func__, mf->width, mf->height,
+				frmfmt[s_data->sensor_mode_id].size.width,
+				frmfmt[s_data->sensor_mode_id].size.height);
 			goto verify_code;
 		}
 	} else {
@@ -654,7 +681,7 @@ int camera_common_try_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf)
 		if (i == s_data->numfmts) {
 			mf->width = s_data->fmt_width;
 			mf->height = s_data->fmt_height;
-			dev_dbg(sd->dev,
+			dev_err(sd->dev,
 				"%s: invalid resolution supplied to set mode %d %d\n",
 				__func__, mf->width, mf->height);
 			goto verify_code;

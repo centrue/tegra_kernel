@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+package=jetson-io-vc-mipi-profiles
+for path in \
+    /opt/nvidia/jetson-io/jetson-io.py \
+    /opt/nvidia/jetson-io/config-by-hardware.py; do
+    owner="$(dpkg-divert --listpackage "$path" 2>/dev/null || true)"
+    if [ -z "$owner" ]; then
+        dpkg-divert --package "$package" --add --rename \
+            --divert "${path}.nvidia-vc-profiles" "$path"
+    elif [ "$owner" != "$package" ]; then
+        echo "Cannot divert $path; it is owned by $owner" >&2
+        exit 1
+    fi
+done
+
+exit 0

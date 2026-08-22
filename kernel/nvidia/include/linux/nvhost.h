@@ -783,6 +783,9 @@ u32 nvhost_syncpt_read_maxval(struct platform_device *dev, u32 id);
 void nvhost_syncpt_set_minval(struct platform_device *dev, u32 id, u32 val);
 void nvhost_syncpt_set_maxval(struct platform_device *dev, u32 id, u32 val);
 
+int nvhost_syncpt_stop_waiting_ext(struct platform_device *dev, u32 id);
+int nvhost_syncpt_restart_waiting_ext(struct platform_device *dev, u32 id);
+
 void nvhost_eventlib_log_task(struct platform_device *pdev,
 			      u32 syncpt_id,
 			      u32 syncpt_thres,

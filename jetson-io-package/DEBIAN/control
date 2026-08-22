@@ -1,0 +1,8 @@
+Package: jetson-io-vc-mipi-profiles
+Version: 32.7.6-1stage2
+Architecture: all
+Maintainer: Jetpack workspace contributors
+Depends: nvidia-l4t-jetson-io (= 32.7.6-20241104234540), jetson-io-jammy-compat (= 32.7.6-1jammy1), python3, device-tree-compiler, dpkg
+Description: Metadata-driven VC MIPI profile menu for NVIDIA Jetson-IO
+ Adds a two-level VC MIPI profile selector without replacing Jetson-IO's
+ board or pinmux compatibility backends.

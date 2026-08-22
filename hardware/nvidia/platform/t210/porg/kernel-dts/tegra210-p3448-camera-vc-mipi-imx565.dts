@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+/plugin/;
+
+#define VC_OVERLAY_NAME "Camera VC MIPI (Custom) / IMX565"
+#define VC_PROFILE_MODEL "IMX565"
+#define VC_CAMERA_BADGE "porg_front_vc_mipi_imx565"
+#define VC_FORCE_MOD_ID 0x0565
+#define VC_NUM_LANES 2
+#define VC_NUM_LANES_STRING "2"
+#define VC_PHYSICAL_W "11.311"
+#define VC_PHYSICAL_H "8.220"
+#define VC_ACTIVE_W "4128"
+#define VC_ACTIVE_H "3000"
+#define VC_MAX_GAIN "48000"
+#define VC_STEP_GAIN "100"
+#define VC_MAX_FRAMERATE "17000"
+
+#include "tegra210-p3448-camera-vc-mipi-profile.dtsi"

@@ -41,6 +41,17 @@ config VIDEO_OV5647
 	  To compile this driver as a module, choose M here: the module
 	  will be called ov5647.
 
+config NV_VIDEO_VC_MIPI
+	tristate "Vision Components MIPI camera support"
+	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
+	---help---
+	  Enable the Vision Components universal MIPI CSI-2 camera driver.
+	  The driver reads the attached VC module descriptor and selects the
+	  sensor model, mode table, controls, and pixel formats automatically.
+
+	  To compile this driver as modules, choose M here. The modules will
+	  be called vc_mipi_camera, vc_mipi_core, and vc_mipi_modules.
+
 config VIDEO_IMX268
 	tristate "IMX268 camera sensor support"
 	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
