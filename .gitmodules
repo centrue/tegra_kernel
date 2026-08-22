@@ -1,0 +1,3 @@
+[submodule "jetson_nano_image_milana"]
+	path = jetson_nano_image_milana
+	url = https://github.com/centrue/jetson_nano_image_milana.git
