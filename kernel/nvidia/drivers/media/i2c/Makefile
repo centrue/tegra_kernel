@@ -19,6 +19,7 @@ obj-$(CONFIG_VIDEO_IMX318) += imx318.o
 obj-$(CONFIG_VIDEO_LC898212) += lc898212.o
 obj-$(CONFIG_VIDEO_OV5693) += ov5693.o
 obj-$(CONFIG_VIDEO_OV9281) += ov9281.o
+obj-$(CONFIG_VIDEO_OV9281_SEN0634) += ov9281_sen0634.o
 obj-$(CONFIG_NV_VIDEO_VC_MIPI) += vc_mipi_camera.o vc_mipi_core.o vc_mipi_modules.o
 obj-$(CONFIG_VIDEO_OV10823) += ov10823.o
 obj-$(CONFIG_VIDEO_OV23850) += ov23850.o

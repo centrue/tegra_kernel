@@ -111,6 +111,17 @@ config VIDEO_OV9281
 	  To compile this driver as a module, choose M here: the module
 	  will be called ov9281.
 
+config VIDEO_OV9281_SEN0634
+	tristate "DFRobot SEN0634 OV9281 camera sensor support"
+	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
+	---help---
+	  This is an isolated Video4Linux2 sensor driver for the DFRobot
+	  SEN0634 OV9281 module.  The first profile supports 1280x800 RAW10
+	  over two CSI lanes at 57 fps on Jetson Nano L4T R32.7.6.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called ov9281_sen0634.
+
 config VIDEO_OV10823
 	tristate "OmniVision OV10823 camera sensor support"
 	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API

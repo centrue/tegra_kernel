@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build an installable L4T R32.7.6 kernel with OV5647 and VC MIPI overlays.
+# Build an installable L4T R32.7.6 kernel with OV5647, SEN0634 OV9281,
+# and VC MIPI overlays.
 
 set -Eeuo pipefail
 
@@ -34,7 +35,8 @@ Options:
   --ccache-dir DIR             Persistent ccache directory (default: /home/liaic/ccache/jetson-kernel)
   -h, --help                   Show this help
 
-VC MIPI is always built in and includes the Stage 2 forced-model and independent
+The SEN0634 OV9281 driver is always built in and is selected by the
+"Camera OV9281 SEN0634" Jetson-IO overlay. VC MIPI is always built in and includes the Stage 2 forced-model and independent
 I2C-address support. The DTB package also carries metadata-driven Auto Detect,
 IMX296, IMX412, and IMX565 Jetson-IO profiles. It
 emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
@@ -140,6 +142,7 @@ COMPILER_VERSION="$(${CROSS_COMPILE}gcc --version | head -n1)"
 	die "expected Linaro GCC 7.3.1 2018.05, got: $COMPILER_VERSION"
 [[ -d "$KERNEL_SRC" ]] || die "kernel source missing: $KERNEL_SRC"
 [[ -f "$DT_DIR/tegra210-p3448-common-ov5647.dts" ]] || die "OV5647 overlay source missing"
+[[ -f "$DT_DIR/tegra210-p3448-common-ov9281-sen0634.dts" ]] || die "SEN0634 OV9281 overlay source missing"
 [[ -f "$DT_DIR/tegra210-p3448-common-vc-mipi.dts" ]] || die "VC MIPI overlay source missing"
 for profile in auto imx296 imx412 imx565; do
 	[[ -f "$DT_DIR/tegra210-p3448-camera-vc-mipi-${profile}.dts" ]] || \
@@ -185,6 +188,8 @@ else
 	"$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" \
 		--module VIDEO_OV5647
 fi
+"$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" \
+	--enable VIDEO_OV9281_SEN0634
 make "${MAKE_ARGS[@]}" olddefconfig
 make "${MAKE_ARGS[@]}" -j"$JOBS" --output-sync=target Image modules dtbs
 "$CCACHE_BIN" --show-stats | tee "$META_DIR/ccache-stats-after-compile.txt"
@@ -194,12 +199,22 @@ KERNEL_RELEASE="$(make "${MAKE_ARGS[@]}" -s kernelrelease)"
 	die "unexpected kernel release: $KERNEL_RELEASE"
 
 CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_OV5647)"
+SEN0634_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_OV9281_SEN0634)"
 VC_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state NV_VIDEO_VC_MIPI)"
+[[ "$SEN0634_CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_OV9281_SEN0634 is not built in"
 [[ "$VC_CONFIG_STATE" == y ]] || die "CONFIG_NV_VIDEO_VC_MIPI is not built in"
 for symbol in vc_probe vc_core_init vc_mod_set_mode vc_mod_id_supported vc_core_release; do
 	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | grep -E " [tT] ${symbol}$" >/dev/null ||
 		die "VC MIPI symbol is absent from vmlinux: $symbol"
 done
+for symbol in ov9281_sen0634_probe; do
+	"$CROSS_COMPILE"nm "$BUILD_DIR/vmlinux" | \
+		grep -E " [tT] $symbol$" >/dev/null ||
+		die "SEN0634 OV9281 symbol is absent from vmlinux: $symbol"
+done
+"$CROSS_COMPILE"nm "$BUILD_DIR/vmlinux" | \
+	grep -E ' [dDbB] ov9281_sen0634_i2c_driver$' >/dev/null ||
+	die "SEN0634 OV9281 driver data is absent from vmlinux"
 if [[ "$DRIVER_MODE" == builtin ]]; then
 	[[ "$CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_OV5647 is not built in"
 	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
@@ -212,6 +227,7 @@ else
 fi
 
 OV5647_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov5647.dtbo"
+SEN0634_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov9281-sen0634.dtbo"
 VC_MIPI_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-vc-mipi.dtbo"
 VC_PROFILE_SPECS=(
 	"auto|Camera VC MIPI (Custom) / Auto Detect|Auto Detect||2|0|0|1.000|1.000|60000"
@@ -220,6 +236,7 @@ VC_PROFILE_SPECS=(
 	"imx565|Camera VC MIPI (Custom) / IMX565|IMX565|565|2|4128|3000|11.311|8.220|17000"
 )
 [[ -s "$OV5647_DTBO" ]] || die "OV5647 DTBO missing: $OV5647_DTBO"
+[[ -s "$SEN0634_DTBO" ]] || die "SEN0634 OV9281 DTBO missing: $SEN0634_DTBO"
 [[ -s "$VC_MIPI_DTBO" ]] || die "VC MIPI DTBO missing: $VC_MIPI_DTBO"
 for spec in "${VC_PROFILE_SPECS[@]}"; do
 	IFS='|' read -r profile _ <<< "$spec"
@@ -240,6 +257,7 @@ rm -f "$STAGE_DIR/lib/modules/$KERNEL_RELEASE/build" \
 
 install -m 0644 "$BUILD_DIR/arch/arm64/boot/Image" "$PACKAGE_ROOT/boot/Image"
 install -m 0644 "$OV5647_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov5647.dtbo"
+install -m 0644 "$SEN0634_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 install -m 0644 "$VC_MIPI_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-vc-mipi.dtbo"
 for spec in "${VC_PROFILE_SPECS[@]}"; do
 	IFS='|' read -r profile _ <<< "$spec"
@@ -256,6 +274,7 @@ SOURCE_FILES=(
 	build-ov5647.sh
 	hardware/nvidia/platform/t210/porg/kernel-dts/Makefile
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov5647.dts
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov9281-sen0634.dts
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-vc-mipi.dts
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-profile.dtsi
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-camera-vc-mipi-auto.dts
@@ -279,6 +298,10 @@ SOURCE_FILES=(
 	kernel/nvidia/drivers/media/i2c/Makefile
 	kernel/nvidia/drivers/media/i2c/ov5647.c
 	kernel/nvidia/drivers/media/i2c/ov5647_mode_tbls.h
+	kernel/nvidia/drivers/media/i2c/ov9281.c
+	kernel/nvidia/drivers/media/i2c/ov9281_mode_tbls.h
+	kernel/nvidia/drivers/media/i2c/ov9281_sen0634.c
+	kernel/nvidia/drivers/media/i2c/ov9281_sen0634_mode_tbls.h
 	kernel/nvidia/drivers/media/i2c/vc_mipi_camera.c
 	kernel/nvidia/drivers/media/i2c/vc_mipi_core.c
 	kernel/nvidia/drivers/media/i2c/vc_mipi_core.h
@@ -403,6 +426,116 @@ for mode in 0 1 2 3; do
 	[[ "$(fdtget -t s "$MERGED_DTB" "$MODE_PATH" pixel_phase)" == bggr ]] || \
 		die "mode${mode} pixel_phase is not BGGR"
 done
+
+echo "Auditing SEN0634 OV9281 overlay"
+SEN0634_OVERLAY_DTS="$PACKAGE_ROOT/metadata/tegra210-p3448-common-ov9281-sen0634.overlay.dts"
+SEN0634_OVERLAY_CPP="$META_DIR/tegra210-p3448-common-ov9281-sen0634.preprocessed.dts"
+SEN0634_OVERLAY_AUDIT_DTBO="$META_DIR/tegra210-p3448-common-ov9281-sen0634.audit.dtbo"
+SEN0634_OVERLAY_WARNINGS="$META_DIR/ov9281-sen0634-overlay-dtc-warnings.log"
+install -m 0644 "$DT_DIR/tegra210-p3448-common-ov9281-sen0634.dts" "$SEN0634_OVERLAY_DTS"
+"$CROSS_COMPILE"gcc -E -nostdinc \
+	-I"$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-undef -D__DTS__ -x assembler-with-cpp \
+	-o "$SEN0634_OVERLAY_CPP" "$DT_DIR/tegra210-p3448-common-ov9281-sen0634.dts"
+"$BUILD_DIR/scripts/dtc/dtc" -@ -I dts -O dtb -b 0 \
+	-i "$DT_DIR" \
+	-i "$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-Wno-unit_address_vs_reg -o "$SEN0634_OVERLAY_AUDIT_DTBO" "$SEN0634_OVERLAY_CPP" \
+	2>"$SEN0634_OVERLAY_WARNINGS"
+[[ ! -s "$SEN0634_OVERLAY_WARNINGS" ]] || {
+	cat "$SEN0634_OVERLAY_WARNINGS" >&2
+	die "SEN0634 OV9281 overlay emits dtc warnings"
+}
+cmp -s "$SEN0634_DTBO" "$SEN0634_OVERLAY_AUDIT_DTBO" || \
+	die "standalone SEN0634 OV9281 overlay audit does not match the Kbuild DTBO"
+
+[[ "$(fdtget -t s "$SEN0634_DTBO" / overlay-name)" == "Camera OV9281 SEN0634" ]] || \
+	die "incorrect SEN0634 OV9281 Jetson-IO overlay name"
+[[ "$(fdtget -t s "$SEN0634_DTBO" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
+	die "incorrect SEN0634 OV9281 header name"
+[[ "$(fdtget -t s "$SEN0634_DTBO" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
+	die "incorrect SEN0634 OV9281 A02 compatibility string"
+
+SEN0634_MERGED_DTB="$META_DIR/a02-ov9281-sen0634-audit.dtb"
+SEN0634_MERGED_DTS="$PACKAGE_ROOT/metadata/a02-ov9281-sen0634-merged-audit.dts"
+fdtoverlay -i "$BASE_DTB" -o "$SEN0634_MERGED_DTB" "$SEN0634_DTBO"
+dtc -I dtb -O dts -o "$SEN0634_MERGED_DTS" "$SEN0634_MERGED_DTB" \
+	2>"$META_DIR/ov9281-sen0634-merged-dtc-warnings.log"
+
+sen0634_symbol_path() {
+	fdtget -t s "$SEN0634_MERGED_DTB" /__symbols__ "$1"
+}
+sen0634_assert_status() {
+	local symbol="$1"
+	local expected="$2"
+	local path
+	path="$(sen0634_symbol_path "$symbol")"
+	[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$path" status)" == "$expected" ]] || \
+		die "$symbol does not have status=$expected after SEN0634 overlay merge"
+}
+
+sen0634_assert_status ov9281_sen0634_single_cam0 okay
+sen0634_assert_status imx219_single_cam0 disabled
+sen0634_assert_status imx477_single_cam0 disabled
+sen0634_assert_status cam_module0_drivernode1 disabled
+
+SEN0634_SENSOR="$(sen0634_symbol_path ov9281_sen0634_single_cam0)"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" compatible)" == nvidia,ov9281-sen0634 ]] || \
+	die "SEN0634 OV9281 compatible is incorrect"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" reg)" == 60 ]] || \
+	die "SEN0634 OV9281 sensor must use I2C address 0x60"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" mclk)" == clk_out_3 ]] || \
+	die "SEN0634 framework clock name is incorrect"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" clock-frequency)" == 16e3600 ]] || \
+	die "SEN0634 framework clock declaration is not 24 MHz"
+if fdtget "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" reset-gpios >/dev/null 2>&1 || \
+	fdtget "$SEN0634_MERGED_DTB" "$SEN0634_SENSOR" pwdn-gpios >/dev/null 2>&1; then
+	die "SEN0634 overlay must not claim PWDN as reset-gpios/pwdn-gpios"
+fi
+
+SEN0634_MODE="$SEN0634_SENSOR/mode0"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" mclk_khz)" == 24000 ]] || \
+	die "SEN0634 mode clock is not 24 MHz"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" num_lanes)" == 2 ]] || \
+	die "SEN0634 mode is not two-lane"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" active_w)" == 1280 ]] || \
+	die "SEN0634 active width mismatch"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" active_h)" == 800 ]] || \
+	die "SEN0634 active height mismatch"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" line_length)" == 1530 ]] || \
+	die "SEN0634 line length mismatch"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" pix_clk_hz)" == 160000000 ]] || \
+	die "SEN0634 pixel clock mismatch"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" pixel_t)" == bayer_rggb10 ]] || \
+	die "SEN0634 mode is not RGGB RAW10"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" pixel_phase)" == rggb ]] || \
+	die "SEN0634 pixel phase is not RGGB"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_MODE" max_framerate)" == 57000000 ]] || \
+	die "SEN0634 maximum frame rate mismatch"
+
+SEN0634_ENDPOINT="$(sen0634_symbol_path ov9281_sen0634_out0)"
+SEN0634_CSI_IN="$(sen0634_symbol_path rbpcv2_imx219_csi_in0)"
+SEN0634_CSI_OUT="$(sen0634_symbol_path rbpcv2_imx219_csi_out0)"
+SEN0634_VI_IN="$(sen0634_symbol_path rbpcv2_imx219_vi_in0)"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_ENDPOINT" remote-endpoint)" == \
+	"$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_CSI_IN" phandle)" ]] || \
+	die "SEN0634 sensor-to-NVCSI graph is not reciprocal"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_CSI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_ENDPOINT" phandle)" ]] || \
+	die "SEN0634 NVCSI-to-sensor graph is not reciprocal"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_CSI_OUT" remote-endpoint)" == \
+	"$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_VI_IN" phandle)" ]] || \
+	die "SEN0634 NVCSI-to-VI graph is not reciprocal"
+[[ "$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_VI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$SEN0634_MERGED_DTB" "$SEN0634_CSI_OUT" phandle)" ]] || \
+	die "SEN0634 VI-to-NVCSI graph is not reciprocal"
+
+SEN0634_DRIVERNODE="$(sen0634_symbol_path cam_module0_drivernode0)"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_DRIVERNODE" devname)" == \
+	"ov9281_sen0634 6-0060" ]] || die "SEN0634 camera-platform devname is incorrect"
+[[ "$(fdtget -t s "$SEN0634_MERGED_DTB" "$SEN0634_DRIVERNODE" proc-device-tree)" == \
+	"/proc/device-tree/host1x/i2c@546c0000/ov9281_sen0634_a@60" ]] || \
+	die "SEN0634 camera-platform device-tree path is incorrect"
 
 VC_OVERLAY_DTS="$PACKAGE_ROOT/metadata/tegra210-p3448-common-vc-mipi.overlay.dts"
 VC_OVERLAY_CPP="$META_DIR/tegra210-p3448-common-vc-mipi.preprocessed.dts"
@@ -690,6 +823,7 @@ fi
 
 # Append both camera Jetson-IO overlays to the official dtbs payload.
 install -m 0644 "$OV5647_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+install -m 0644 "$SEN0634_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 install -m 0644 "$VC_MIPI_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
 for spec in "${VC_PROFILE_SPECS[@]}"; do
 	IFS='|' read -r profile _ <<< "$spec"
@@ -725,6 +859,7 @@ test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.dep"
 test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-0000-p3449-0000-a02.dtb"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
+test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
 for spec in "${VC_PROFILE_SPECS[@]}"; do
 	IFS='|' read -r profile _ <<< "$spec"

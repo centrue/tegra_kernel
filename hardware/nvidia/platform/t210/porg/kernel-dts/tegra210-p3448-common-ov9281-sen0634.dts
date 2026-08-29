@@ -1,0 +1,204 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Jetson Nano A02 overlay for DFRobot SEN0634 OV9281. */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/tegra210-car.h>
+
+/ {
+	overlay-name = "Camera OV9281 SEN0634";
+	jetson-header-name = "Jetson Nano CSI Connector";
+	compatible = "nvidia,p3449-0000-a02+p3448-0000-a02";
+
+	fragment@0 {
+		target = <&i2c7>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ov9281_sen0634_single_cam0: ov9281_sen0634_a@60 {
+				compatible = "nvidia,ov9281-sen0634";
+				reg = <0x60>;
+				status = "okay";
+				devnode = "video0";
+				physical_w = "3.840";
+				physical_h = "2.400";
+				sensor_model = "ov9281";
+				use_sensor_mode_id = "true";
+
+				/*
+				 * R32.7.6 camera_common_s_power() requires a clock
+				 * handle.  SEN0634 Pin 12 is NC on the module side,
+				 * so this 24 MHz declaration is framework-only; the
+				 * sensor is clocked by its onboard 24 MHz oscillator.
+				 */
+				clocks = <&tegra_car TEGRA210_CLK_CLK_OUT_3>;
+				clock-names = "clk_out_3";
+				clock-frequency = <24000000>;
+				mclk = "clk_out_3";
+
+				mode0 {
+					mclk_khz = "24000";
+					num_lanes = "2";
+					tegra_sinterface = "serial_a";
+					phy_mode = "DPHY";
+					discontinuous_clk = "no";
+					dpcm_enable = "false";
+					cil_settletime = "0";
+					mode_type = "bayer";
+					pixel_phase = "rggb";
+					csi_pixel_bit_depth = "10";
+					pixel_t = "bayer_rggb10";
+					active_w = "1280";
+					active_h = "800";
+					active_l = "0";
+					active_t = "0";
+					readout_orientation = "0";
+					line_length = "1530";
+					inherent_gain = "1";
+					mclk_multiplier = "6.66667";
+					pix_clk_hz = "160000000";
+					gain_factor = "16";
+					min_gain_val = "16";
+					max_gain_val = "255";
+					step_gain_val = "1";
+					default_gain = "16";
+					min_hdr_ratio = "1";
+					max_hdr_ratio = "1";
+					framerate_factor = "1000000";
+					min_framerate = "2000000";
+					max_framerate = "57000000";
+					step_framerate = "1";
+					default_framerate = "57000000";
+					exposure_factor = "1000000";
+					min_exp_time = "10";
+					max_exp_time = "500000";
+					step_exp_time = "1";
+					default_exp_time = "5000";
+					embedded_metadata_height = "0";
+				};
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					port@0 {
+						reg = <0>;
+						ov9281_sen0634_out0: endpoint {
+							port-index = <0>;
+							bus-width = <2>;
+							remote-endpoint = <&rbpcv2_imx219_csi_in0>;
+						};
+					};
+				};
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&imx219_single_cam0>;
+		__overlay__ { status = "disabled"; };
+	};
+
+	fragment@2 {
+		target = <&imx477_single_cam0>;
+		__overlay__ { status = "disabled"; };
+	};
+
+	fragment@3 {
+		target = <&vi_base>;
+		__overlay__ { num-channels = <1>; };
+	};
+
+	fragment@4 {
+		target = <&vi_port0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@5 {
+		target = <&rbpcv2_imx219_vi_in0>;
+		__overlay__ {
+			status = "okay";
+			port-index = <0>;
+			bus-width = <2>;
+			remote-endpoint = <&rbpcv2_imx219_csi_out0>;
+		};
+	};
+
+	fragment@6 {
+		target = <&csi_base>;
+		__overlay__ { num-channels = <1>; };
+	};
+
+	fragment@7 {
+		target = <&csi_chan0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@8 {
+		target = <&csi_chan0_port0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@9 {
+		target = <&rbpcv2_imx219_csi_in0>;
+		__overlay__ {
+			status = "okay";
+			port-index = <0>;
+			bus-width = <2>;
+			remote-endpoint = <&ov9281_sen0634_out0>;
+		};
+	};
+
+	fragment@10 {
+		target = <&csi_chan0_port1>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@11 {
+		target = <&rbpcv2_imx219_csi_out0>;
+		__overlay__ {
+			status = "okay";
+			remote-endpoint = <&rbpcv2_imx219_vi_in0>;
+		};
+	};
+
+	fragment@12 {
+		target = <&cam_module0>;
+		__overlay__ {
+			status = "okay";
+			badge = "porg_front_OV9281_SEN0634";
+			position = "front";
+			orientation = "1";
+		};
+	};
+
+	fragment@13 {
+		target = <&cam_module0_drivernode0>;
+		__overlay__ {
+			status = "okay";
+			pcl_id = "v4l2_sensor";
+			devname = "ov9281_sen0634 6-0060";
+			proc-device-tree = "/proc/device-tree/host1x/i2c@546c0000/ov9281_sen0634_a@60";
+		};
+	};
+
+	fragment@14 {
+		target = <&cam_module0_drivernode1>;
+		__overlay__ { status = "disabled"; };
+	};
+
+	fragment@15 {
+		target = <&tcp>;
+		__overlay__ {
+			num_csi_lanes = <2>;
+			max_lane_speed = <1500000>;
+			min_bits_per_pixel = <10>;
+			vi_peak_byte_per_pixel = <2>;
+			vi_bw_margin_pct = <25>;
+			max_pixel_rate = <160000>;
+			isp_peak_byte_per_pixel = <5>;
+			isp_bw_margin_pct = <25>;
+		};
+	};
+};
