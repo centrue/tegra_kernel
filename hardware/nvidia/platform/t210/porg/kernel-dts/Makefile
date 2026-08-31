@@ -31,6 +31,7 @@ dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-0000-p3449-0000-a01-m2ke.dtb
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-0000-p3449-0000-a02-m2ke.dtbo
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-imx477.dtbo
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-imx219.dtbo
+dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-imx708.dtbo
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-ov5647.dtbo
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-ov9281-sen0634.dtbo
 dtbo-$(CONFIG_ARCH_TEGRA_210_SOC) += tegra210-p3448-common-vc-mipi.dtbo

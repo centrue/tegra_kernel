@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build an installable L4T R32.7.6 kernel with OV5647, SEN0634 OV9281,
-# and VC MIPI overlays.
+# Build an installable L4T R32.7.6 kernel with IMX708 + DW9817, OV5647,
+# SEN0634 OV9281, and VC MIPI overlays.
 
 set -Eeuo pipefail
 
@@ -35,9 +35,12 @@ Options:
   --ccache-dir DIR             Persistent ccache directory (default: /home/liaic/ccache/jetson-kernel)
   -h, --help                   Show this help
 
-The SEN0634 OV9281 driver is always built in and is selected by the
-"Camera OV9281 SEN0634" Jetson-IO overlay. VC MIPI is always built in and includes the Stage 2 forced-model and independent
-I2C-address support. The DTB package also carries metadata-driven Auto Detect,
+The IMX708 sensor and DW9817 manual-focus drivers are always built in. The
+"Camera IMX708" Jetson-IO overlay exposes 4608x2592, 2304x1296, and 1536x864
+non-HDR modes plus V4L2_CID_FOCUS_ABSOLUTE. The SEN0634 OV9281 driver is also
+built in and selected by the "Camera OV9281 SEN0634" Jetson-IO overlay. VC MIPI
+is always built in and includes the Stage 2 forced-model and independent I2C
+address support. The DTB package also carries metadata-driven Auto Detect,
 IMX296, IMX412, and IMX565 Jetson-IO profiles. It
 emits the repacked nvidia-l4t-kernel / nvidia-l4t-kernel-dtbs debs into
 <output>/deb/ (OUTPUT defaults to out/ov5647-MODE). The pristine NVIDIA
@@ -141,6 +144,7 @@ COMPILER_VERSION="$(${CROSS_COMPILE}gcc --version | head -n1)"
 	"$COMPILER_VERSION" == *"7.3.1"* ]] || \
 	die "expected Linaro GCC 7.3.1 2018.05, got: $COMPILER_VERSION"
 [[ -d "$KERNEL_SRC" ]] || die "kernel source missing: $KERNEL_SRC"
+[[ -f "$DT_DIR/tegra210-p3448-common-imx708.dts" ]] || die "IMX708 overlay source missing"
 [[ -f "$DT_DIR/tegra210-p3448-common-ov5647.dts" ]] || die "OV5647 overlay source missing"
 [[ -f "$DT_DIR/tegra210-p3448-common-ov9281-sen0634.dts" ]] || die "SEN0634 OV9281 overlay source missing"
 [[ -f "$DT_DIR/tegra210-p3448-common-vc-mipi.dts" ]] || die "VC MIPI overlay source missing"
@@ -171,7 +175,7 @@ MAKE_ARGS=(
 	'the-space=$(space)'
 )
 
-echo "OV5647 + VC MIPI Stage 2 kernel build"
+echo "IMX708 + OV5647 + VC MIPI Stage 2 kernel build"
 echo "source: $SCRIPT_DIR"
 echo "output: $OUTPUT"
 echo "driver mode: $DRIVER_MODE"
@@ -189,6 +193,8 @@ else
 		--module VIDEO_OV5647
 fi
 "$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" \
+	--enable VIDEO_IMX708 \
+	--enable VIDEO_DW9817 \
 	--enable VIDEO_OV9281_SEN0634
 make "${MAKE_ARGS[@]}" olddefconfig
 make "${MAKE_ARGS[@]}" -j"$JOBS" --output-sync=target Image modules dtbs
@@ -199,8 +205,12 @@ KERNEL_RELEASE="$(make "${MAKE_ARGS[@]}" -s kernelrelease)"
 	die "unexpected kernel release: $KERNEL_RELEASE"
 
 CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_OV5647)"
+IMX708_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_IMX708)"
+DW9817_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_DW9817)"
 SEN0634_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state VIDEO_OV9281_SEN0634)"
 VC_CONFIG_STATE="$("$KERNEL_SRC/scripts/config" --file "$BUILD_DIR/.config" --state NV_VIDEO_VC_MIPI)"
+[[ "$IMX708_CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_IMX708 is not built in"
+[[ "$DW9817_CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_DW9817 is not built in"
 [[ "$SEN0634_CONFIG_STATE" == y ]] || die "CONFIG_VIDEO_OV9281_SEN0634 is not built in"
 [[ "$VC_CONFIG_STATE" == y ]] || die "CONFIG_NV_VIDEO_VC_MIPI is not built in"
 for symbol in vc_probe vc_core_init vc_mod_set_mode vc_mod_id_supported vc_core_release; do
@@ -212,6 +222,22 @@ for symbol in ov9281_sen0634_probe; do
 		grep -E " [tT] $symbol$" >/dev/null ||
 		die "SEN0634 OV9281 symbol is absent from vmlinux: $symbol"
 done
+for symbol in imx708_probe; do
+	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
+		grep -E " [tT] ${symbol}$" >/dev/null ||
+		die "IMX708 symbol is absent from vmlinux: $symbol"
+done
+for symbol in dw9817_probe; do
+	"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
+		grep -E " [tT] ${symbol}$" >/dev/null ||
+		die "DW9817 symbol is absent from vmlinux: $symbol"
+done
+"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
+	grep -E ' [dDbB] imx708_i2c_driver$' >/dev/null ||
+	die "IMX708 driver data is absent from vmlinux"
+"${CROSS_COMPILE}nm" "$BUILD_DIR/vmlinux" | \
+	grep -E ' [dDbB] dw9817_i2c_driver$' >/dev/null ||
+	die "DW9817 driver data is absent from vmlinux"
 "$CROSS_COMPILE"nm "$BUILD_DIR/vmlinux" | \
 	grep -E ' [dDbB] ov9281_sen0634_i2c_driver$' >/dev/null ||
 	die "SEN0634 OV9281 driver data is absent from vmlinux"
@@ -226,6 +252,7 @@ else
 		die "ov5647.ko was not built"
 fi
 
+IMX708_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-imx708.dtbo"
 OV5647_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov5647.dtbo"
 SEN0634_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-ov9281-sen0634.dtbo"
 VC_MIPI_DTBO="$BUILD_DIR/arch/arm64/boot/dts/tegra210-p3448-common-vc-mipi.dtbo"
@@ -235,6 +262,7 @@ VC_PROFILE_SPECS=(
 	"imx412|Camera VC MIPI (Custom) / IMX412|IMX412|412|2|4032|3040|6.250|4.712|20000"
 	"imx565|Camera VC MIPI (Custom) / IMX565|IMX565|565|2|4128|3000|11.311|8.220|17000"
 )
+[[ -s "$IMX708_DTBO" ]] || die "IMX708 DTBO missing: $IMX708_DTBO"
 [[ -s "$OV5647_DTBO" ]] || die "OV5647 DTBO missing: $OV5647_DTBO"
 [[ -s "$SEN0634_DTBO" ]] || die "SEN0634 OV9281 DTBO missing: $SEN0634_DTBO"
 [[ -s "$VC_MIPI_DTBO" ]] || die "VC MIPI DTBO missing: $VC_MIPI_DTBO"
@@ -250,12 +278,18 @@ mkdir -p "$STAGE_DIR" "$PACKAGE_ROOT/boot" \
 # Strip debug symbols like the shipped NVIDIA modules; the tegra_defconfig
 # keeps DEBUG_INFO, so unstripped modules are ~13x larger than the official
 # nvidia-l4t-kernel package (which would bloat the target rootfs and image).
-make "${MAKE_ARGS[@]}" -j"$JOBS" INSTALL_MOD_PATH="$STAGE_DIR" INSTALL_MOD_STRIP=1 modules_install
+# Linux 4.9 predates modules.builtin.modinfo, but modern kmod warns when it is
+# absent. Suppress Kbuild's convenience depmod, add the empty compatibility
+# index, then run the authoritative depmod below once the module tree is final.
+make "${MAKE_ARGS[@]}" -j"$JOBS" INSTALL_MOD_PATH="$STAGE_DIR" INSTALL_MOD_STRIP=1 \
+	DEPMOD=true modules_install
+: > "$STAGE_DIR/lib/modules/$KERNEL_RELEASE/modules.builtin.modinfo"
 depmod -b "$STAGE_DIR" "$KERNEL_RELEASE"
 rm -f "$STAGE_DIR/lib/modules/$KERNEL_RELEASE/build" \
 	"$STAGE_DIR/lib/modules/$KERNEL_RELEASE/source"
 
 install -m 0644 "$BUILD_DIR/arch/arm64/boot/Image" "$PACKAGE_ROOT/boot/Image"
+install -m 0644 "$IMX708_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-imx708.dtbo"
 install -m 0644 "$OV5647_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov5647.dtbo"
 install -m 0644 "$SEN0634_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 install -m 0644 "$VC_MIPI_DTBO" "$PACKAGE_ROOT/boot/tegra210-p3448-common-vc-mipi.dtbo"
@@ -272,7 +306,11 @@ install -m 0644 "$BUILD_DIR/Module.symvers" "$PACKAGE_ROOT/metadata/Module.symve
 
 SOURCE_FILES=(
 	build-ov5647.sh
+	tests/test_imx708_build_integration.sh
+	tests/test_imx708_modes_focus_static.sh
+	tests/test_imx708_overlay.sh
 	hardware/nvidia/platform/t210/porg/kernel-dts/Makefile
+	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-imx708.dts
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov5647.dts
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-ov9281-sen0634.dts
 	hardware/nvidia/platform/t210/porg/kernel-dts/tegra210-p3448-common-vc-mipi.dts
@@ -296,6 +334,9 @@ SOURCE_FILES=(
 	kernel/kernel-4.9/include/uapi/linux/videodev2.h
 	kernel/nvidia/drivers/media/i2c/Kconfig
 	kernel/nvidia/drivers/media/i2c/Makefile
+	kernel/nvidia/drivers/media/i2c/dw9817.c
+	kernel/nvidia/drivers/media/i2c/imx708.c
+	kernel/nvidia/drivers/media/i2c/imx708_mode_tbls.h
 	kernel/nvidia/drivers/media/i2c/ov5647.c
 	kernel/nvidia/drivers/media/i2c/ov5647_mode_tbls.h
 	kernel/nvidia/drivers/media/i2c/ov9281.c
@@ -320,6 +361,7 @@ SOURCE_FILES=(
 	kernel/nvidia/drivers/video/tegra/host/nvhost_syncpt.h
 	kernel/nvidia/include/linux/nvhost.h
 	kernel/nvidia/include/media/camera_common.h
+	kernel/nvidia/include/media/imx708.h
 	kernel/nvidia/include/media/mc_common.h
 	kernel/nvidia/include/media/tegra-v4l2-camera.h
 )
@@ -339,6 +381,141 @@ if [[ "$DRIVER_MODE" == builtin ]] && \
 	[[ -n "$(find "$PACKAGE_ROOT/lib/modules" -type f -name ov5647.ko -print -quit)" ]]; then
 	die "built-in bundle unexpectedly contains ov5647.ko"
 fi
+if [[ -n "$(find "$PACKAGE_ROOT/lib/modules" -type f -name dw9817.ko -print -quit)" ]]; then
+	die "built-in bundle unexpectedly contains dw9817.ko"
+fi
+
+echo "Auditing IMX708 overlay"
+IMX708_OVERLAY_DTS="$PACKAGE_ROOT/metadata/tegra210-p3448-common-imx708.overlay.dts"
+IMX708_OVERLAY_WARNINGS="$META_DIR/imx708-overlay-dtc-warnings.log"
+IMX708_OVERLAY_CPP="$META_DIR/tegra210-p3448-common-imx708.preprocessed.dts"
+IMX708_OVERLAY_AUDIT_DTBO="$META_DIR/tegra210-p3448-common-imx708.audit.dtbo"
+install -m 0644 "$DT_DIR/tegra210-p3448-common-imx708.dts" "$IMX708_OVERLAY_DTS"
+"${CROSS_COMPILE}gcc" -E -nostdinc \
+	-I"$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-undef -D__DTS__ -x assembler-with-cpp \
+	-o "$IMX708_OVERLAY_CPP" "$DT_DIR/tegra210-p3448-common-imx708.dts"
+"$BUILD_DIR/scripts/dtc/dtc" -@ -I dts -O dtb -b 0 \
+	-i "$DT_DIR" \
+	-i "$SCRIPT_DIR/hardware/nvidia/soc/tegra/kernel-include" \
+	-Wno-unit_address_vs_reg -o "$IMX708_OVERLAY_AUDIT_DTBO" "$IMX708_OVERLAY_CPP" \
+	2>"$IMX708_OVERLAY_WARNINGS"
+[[ ! -s "$IMX708_OVERLAY_WARNINGS" ]] || {
+	cat "$IMX708_OVERLAY_WARNINGS" >&2
+	die "IMX708 overlay emits dtc warnings"
+}
+cmp -s "$IMX708_DTBO" "$IMX708_OVERLAY_AUDIT_DTBO" || \
+	die "standalone IMX708 overlay audit does not match the Kbuild DTBO"
+
+[[ "$(fdtget -t s "$IMX708_DTBO" / overlay-name)" == "Camera IMX708" ]] || \
+	die "incorrect IMX708 Jetson-IO overlay name"
+[[ "$(fdtget -t s "$IMX708_DTBO" / jetson-header-name)" == "Jetson Nano CSI Connector" ]] || \
+	die "incorrect IMX708 Jetson-IO header name"
+[[ "$(fdtget -t s "$IMX708_DTBO" / compatible)" == "nvidia,p3449-0000-a02+p3448-0000-a02" ]] || \
+	die "incorrect IMX708 A02 compatibility string"
+
+IMX708_MERGED_DTB="$META_DIR/a02-imx708-audit.dtb"
+IMX708_MERGED_DTS="$PACKAGE_ROOT/metadata/a02-imx708-merged-audit.dts"
+fdtoverlay -i "$BASE_DTB" -o "$IMX708_MERGED_DTB" "$IMX708_DTBO"
+dtc -I dtb -O dts -o "$IMX708_MERGED_DTS" "$IMX708_MERGED_DTB" \
+	2>"$META_DIR/imx708-merged-dtc-warnings.log"
+
+imx708_symbol_path() {
+	fdtget -t s "$IMX708_MERGED_DTB" /__symbols__ "$1"
+}
+imx708_assert_status() {
+	local symbol="$1"
+	local expected="$2"
+	local path
+	path="$(imx708_symbol_path "$symbol")"
+	[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$path" status)" == "$expected" ]] || \
+		die "$symbol does not have status=$expected after IMX708 overlay merge"
+}
+
+imx708_assert_status imx708_single_cam0 okay
+imx708_assert_status imx708_dw9817 okay
+imx708_assert_status imx219_single_cam0 disabled
+imx708_assert_status imx477_single_cam0 disabled
+imx708_assert_status cam_module0_drivernode1 okay
+
+IMX708_SENSOR="$(imx708_symbol_path imx708_single_cam0)"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_SENSOR" compatible)" == sony,imx708 ]] || \
+	die "IMX708 compatible is incorrect"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_SENSOR" reg)" == 1a ]] || \
+	die "IMX708 sensor must use I2C address 0x1a"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_SENSOR" sensor_model)" == imx708 ]] || \
+	die "IMX708 sensor_model is incorrect"
+
+IMX708_VCM="$(imx708_symbol_path imx708_dw9817)"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_VCM" compatible)" == \
+	"dongwoon,dw9817-vcm" ]] || die "IMX708 DW9817 compatible is incorrect"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_VCM" reg)" == c ]] || \
+	die "IMX708 DW9817 must use I2C address 0x0c"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_SENSOR" lens-focus)" == \
+	"$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_VCM" phandle)" ]] || \
+	die "IMX708 lens-focus does not reference DW9817"
+
+imx708_check_mode() {
+	local name="$1" width="$2" height="$3" line_length="$4"
+	local pixel_clock="$5" max_fps="$6" default_fps="$7"
+	local mode="$IMX708_SENSOR/$name"
+	local property expected
+
+	for property_value in \
+		"mclk_khz 24000" \
+		"num_lanes 2" \
+		"tegra_sinterface serial_a" \
+		"active_w $width" \
+		"active_h $height" \
+		"line_length $line_length" \
+		"pix_clk_hz $pixel_clock" \
+		"pixel_phase rggb" \
+		"pixel_t bayer_rggb10" \
+		"max_framerate $max_fps" \
+		"default_framerate $default_fps" \
+		"embedded_metadata_height 2"; do
+		read -r property expected <<< "$property_value"
+		[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$mode" "$property")" == "$expected" ]] || \
+			die "IMX708 $name $property is not $expected"
+	done
+}
+
+imx708_check_mode mode0 4608 2592 15648 595200000 14000000 14000000
+imx708_check_mode mode1 2304 1296 7824 585600000 56000000 30000000
+imx708_check_mode mode2 1536 864 5216 566400000 120000000 30000000
+
+IMX708_ENDPOINT="$(imx708_symbol_path imx708_out0)"
+IMX708_CSI_IN="$(imx708_symbol_path rbpcv2_imx219_csi_in0)"
+IMX708_CSI_OUT="$(imx708_symbol_path rbpcv2_imx219_csi_out0)"
+IMX708_VI_IN="$(imx708_symbol_path rbpcv2_imx219_vi_in0)"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_ENDPOINT" remote-endpoint)" == \
+	"$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_CSI_IN" phandle)" ]] || \
+	die "IMX708 sensor-to-NVCSI graph is not reciprocal"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_CSI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_ENDPOINT" phandle)" ]] || \
+	die "IMX708 NVCSI-to-sensor graph is not reciprocal"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_CSI_OUT" remote-endpoint)" == \
+	"$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_VI_IN" phandle)" ]] || \
+	die "IMX708 NVCSI-to-VI graph is not reciprocal"
+[[ "$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_VI_IN" remote-endpoint)" == \
+	"$(fdtget -t x "$IMX708_MERGED_DTB" "$IMX708_CSI_OUT" phandle)" ]] || \
+	die "IMX708 VI-to-NVCSI graph is not reciprocal"
+
+IMX708_DRIVERNODE="$(imx708_symbol_path cam_module0_drivernode0)"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_DRIVERNODE" devname)" == "imx708 6-001a" ]] || \
+	die "IMX708 camera-module devname is incorrect"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_DRIVERNODE" proc-device-tree)" == \
+	"/proc/device-tree/host1x/i2c@546c0000/imx708_a@1a" ]] || \
+	die "IMX708 camera-module proc-device-tree is incorrect"
+
+IMX708_LENS_DRIVERNODE="$(imx708_symbol_path cam_module0_drivernode1)"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_LENS_DRIVERNODE" pcl_id)" == \
+	"v4l2_lens" ]] || die "IMX708 lens pcl_id is incorrect"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_LENS_DRIVERNODE" devname)" == \
+	"dw9817 6-000c" ]] || die "IMX708 lens devname is incorrect"
+[[ "$(fdtget -t s "$IMX708_MERGED_DTB" "$IMX708_LENS_DRIVERNODE" proc-device-tree)" == \
+	"/proc/device-tree/host1x/i2c@546c0000/dw9817@c" ]] || \
+	die "IMX708 lens proc-device-tree is incorrect"
 
 OVERLAY_DTS="$PACKAGE_ROOT/metadata/tegra210-p3448-common-ov5647.overlay.dts"
 OVERLAY_WARNINGS="$META_DIR/overlay-dtc-warnings.log"
@@ -772,7 +949,7 @@ install -m 0644 "$LOG_FILE" "$PACKAGE_ROOT/metadata/build.log"
 	} > metadata/manifest.tsv
 )
 
-ARCHIVE="$OUTPUT/jetson-nano-a02-r32.7.6-ov5647-vc-mipi-stage2-${DRIVER_MODE}.tar.gz"
+ARCHIVE="$OUTPUT/jetson-nano-a02-r32.7.6-imx708-ov5647-vc-mipi-stage2-${DRIVER_MODE}.tar.gz"
 tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
 	-C "$PACKAGE_ROOT" -czf "$ARCHIVE" boot lib metadata
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
@@ -821,7 +998,8 @@ if [[ -f "$MODULES_SOFTDEP" ]]; then
 		"$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
 fi
 
-# Append both camera Jetson-IO overlays to the official dtbs payload.
+# Append the custom camera Jetson-IO overlays to the official dtbs payload.
+install -m 0644 "$IMX708_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-imx708.dtbo"
 install -m 0644 "$OV5647_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
 install -m 0644 "$SEN0634_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 install -m 0644 "$VC_MIPI_DTBO" "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
@@ -858,6 +1036,7 @@ test -f "$KERNEL_PAYLOAD/boot/Image"
 test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.dep"
 test -f "$KERNEL_PAYLOAD/lib/modules/$KERNEL_RELEASE/modules.softdep"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-0000-p3449-0000-a02.dtb"
+test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-imx708.dtbo"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov5647.dtbo"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-ov9281-sen0634.dtbo"
 test -f "$DTBS_PAYLOAD/boot/tegra210-p3448-common-vc-mipi.dtbo"
@@ -960,7 +1139,8 @@ else
 	echo "package lock update disabled; Linux_for_Tegra/kernel/ left unchanged"
 fi
 
-rm -f "$MERGED_DTB" "$VC_MERGED_DTB" "$META_DIR"/a02-vc-mipi-*-audit.dtb
+rm -f "$IMX708_MERGED_DTB" "$MERGED_DTB" "$VC_MERGED_DTB" \
+	"$META_DIR"/a02-vc-mipi-*-audit.dtb
 echo "build complete: $ARCHIVE"
 echo "checksum: $ARCHIVE.sha256"
 echo "staging tree: $PACKAGE_ROOT"

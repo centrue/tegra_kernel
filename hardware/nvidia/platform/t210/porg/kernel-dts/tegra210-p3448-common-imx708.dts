@@ -1,0 +1,285 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Jetson Nano A02 single-camera overlay for Raspberry Pi IMX708 modules. */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/gpio/tegra-gpio.h>
+
+/ {
+	overlay-name = "Camera IMX708";
+	jetson-header-name = "Jetson Nano CSI Connector";
+	compatible = "nvidia,p3449-0000-a02+p3448-0000-a02";
+
+	fragment@0 {
+		target = <&i2c7>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			imx708_single_cam0: imx708_a@1a {
+				compatible = "sony,imx708";
+				reg = <0x1a>;
+				status = "okay";
+				devnode = "video0";
+				physical_w = "3.680";
+				physical_h = "2.760";
+				sensor_model = "imx708";
+				use_sensor_mode_id = "true";
+				reset-gpios = <&gpio TEGRA_GPIO(S, 7) GPIO_ACTIVE_HIGH>;
+				lens-focus = <&imx708_dw9817>;
+
+				mode0 {
+					mclk_khz = "24000";
+					num_lanes = "2";
+					tegra_sinterface = "serial_a";
+					phy_mode = "DPHY";
+					discontinuous_clk = "yes";
+					dpcm_enable = "false";
+					cil_settletime = "0";
+					mode_type = "bayer";
+					pixel_phase = "rggb";
+					csi_pixel_bit_depth = "10";
+					pixel_t = "bayer_rggb10";
+					active_w = "4608";
+					active_h = "2592";
+					active_l = "0";
+					active_t = "0";
+					readout_orientation = "90";
+					line_length = "15648";
+					inherent_gain = "1";
+					pix_clk_hz = "595200000";
+					gain_factor = "16";
+					min_gain_val = "16";
+					max_gain_val = "512";
+					step_gain_val = "1";
+					default_gain = "16";
+					min_hdr_ratio = "1";
+					max_hdr_ratio = "1";
+					framerate_factor = "1000000";
+					min_framerate = "2000000";
+					max_framerate = "14000000";
+					step_framerate = "1";
+					default_framerate = "14000000";
+					exposure_factor = "1000000";
+					min_exp_time = "500";
+					max_exp_time = "499000";
+					step_exp_time = "1";
+					default_exp_time = "1600";
+					embedded_metadata_height = "2";
+				};
+
+				mode1 {
+					mclk_khz = "24000";
+					num_lanes = "2";
+					tegra_sinterface = "serial_a";
+					phy_mode = "DPHY";
+					discontinuous_clk = "yes";
+					dpcm_enable = "false";
+					cil_settletime = "0";
+					mode_type = "bayer";
+					pixel_phase = "rggb";
+					csi_pixel_bit_depth = "10";
+					pixel_t = "bayer_rggb10";
+					active_w = "2304";
+					active_h = "1296";
+					active_l = "0";
+					active_t = "0";
+					readout_orientation = "90";
+					line_length = "7824";
+					inherent_gain = "1";
+					pix_clk_hz = "585600000";
+					gain_factor = "16";
+					min_gain_val = "16";
+					max_gain_val = "512";
+					step_gain_val = "1";
+					default_gain = "16";
+					min_hdr_ratio = "1";
+					max_hdr_ratio = "1";
+					framerate_factor = "1000000";
+					min_framerate = "2000000";
+					max_framerate = "56000000";
+					step_framerate = "1";
+					default_framerate = "30000000";
+					exposure_factor = "1000000";
+					min_exp_time = "500";
+					max_exp_time = "499000";
+					step_exp_time = "1";
+					default_exp_time = "1600";
+					/* Embedded rows include sensor metadata/PDAF payloads. */
+					embedded_metadata_height = "2";
+				};
+
+				mode2 {
+					mclk_khz = "24000";
+					num_lanes = "2";
+					tegra_sinterface = "serial_a";
+					phy_mode = "DPHY";
+					discontinuous_clk = "yes";
+					dpcm_enable = "false";
+					cil_settletime = "0";
+					mode_type = "bayer";
+					pixel_phase = "rggb";
+					csi_pixel_bit_depth = "10";
+					pixel_t = "bayer_rggb10";
+					active_w = "1536";
+					active_h = "864";
+					active_l = "768";
+					active_t = "432";
+					readout_orientation = "90";
+					line_length = "5216";
+					inherent_gain = "1";
+					pix_clk_hz = "566400000";
+					gain_factor = "16";
+					min_gain_val = "16";
+					max_gain_val = "512";
+					step_gain_val = "1";
+					default_gain = "16";
+					min_hdr_ratio = "1";
+					max_hdr_ratio = "1";
+					framerate_factor = "1000000";
+					min_framerate = "2000000";
+					max_framerate = "120000000";
+					step_framerate = "1";
+					default_framerate = "30000000";
+					exposure_factor = "1000000";
+					min_exp_time = "500";
+					max_exp_time = "499000";
+					step_exp_time = "1";
+					default_exp_time = "1600";
+					/* Embedded rows include sensor metadata/PDAF payloads. */
+					embedded_metadata_height = "2";
+				};
+
+				ports {
+					port {
+						imx708_out0: endpoint {
+							port-index = <0>;
+							bus-width = <2>;
+							remote-endpoint = <&rbpcv2_imx219_csi_in0>;
+						};
+					};
+				};
+			};
+
+			imx708_dw9817: dw9817@c {
+				compatible = "dongwoon,dw9817-vcm";
+				reg = <0x0c>;
+				status = "okay";
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&imx219_single_cam0>;
+		__overlay__ { status = "disabled"; };
+	};
+
+	fragment@2 {
+		target = <&imx477_single_cam0>;
+		__overlay__ { status = "disabled"; };
+	};
+
+	fragment@3 {
+		target = <&vi_base>;
+		__overlay__ { num-channels = <1>; };
+	};
+
+	fragment@4 {
+		target = <&vi_port0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@5 {
+		target = <&rbpcv2_imx219_vi_in0>;
+		__overlay__ {
+			status = "okay";
+			port-index = <0>;
+			bus-width = <2>;
+			remote-endpoint = <&rbpcv2_imx219_csi_out0>;
+		};
+	};
+
+	fragment@6 {
+		target = <&csi_base>;
+		__overlay__ { num-channels = <1>; };
+	};
+
+	fragment@7 {
+		target = <&csi_chan0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@8 {
+		target = <&csi_chan0_port0>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@9 {
+		target = <&rbpcv2_imx219_csi_in0>;
+		__overlay__ {
+			status = "okay";
+			port-index = <0>;
+			bus-width = <2>;
+			remote-endpoint = <&imx708_out0>;
+		};
+	};
+
+	fragment@10 {
+		target = <&csi_chan0_port1>;
+		__overlay__ { status = "okay"; };
+	};
+
+	fragment@11 {
+		target = <&rbpcv2_imx219_csi_out0>;
+		__overlay__ {
+			status = "okay";
+			remote-endpoint = <&rbpcv2_imx219_vi_in0>;
+		};
+	};
+
+	fragment@12 {
+		target = <&cam_module0>;
+		__overlay__ {
+			status = "okay";
+			badge = "porg_front_IMX708";
+			position = "front";
+			orientation = "1";
+		};
+	};
+
+	fragment@13 {
+		target = <&cam_module0_drivernode0>;
+		__overlay__ {
+			status = "okay";
+			pcl_id = "v4l2_sensor";
+			devname = "imx708 6-001a";
+			proc-device-tree = "/proc/device-tree/host1x/i2c@546c0000/imx708_a@1a";
+		};
+	};
+
+	fragment@14 {
+		target = <&cam_module0_drivernode1>;
+		__overlay__ {
+			status = "okay";
+			pcl_id = "v4l2_lens";
+			devname = "dw9817 6-000c";
+			proc-device-tree = "/proc/device-tree/host1x/i2c@546c0000/dw9817@c";
+		};
+	};
+
+	fragment@15 {
+		target = <&tcp>;
+		__overlay__ {
+			num_csi_lanes = <2>;
+			max_lane_speed = <2500000>;
+			min_bits_per_pixel = <10>;
+			vi_peak_byte_per_pixel = <2>;
+			vi_bw_margin_pct = <25>;
+			max_pixel_rate = <7500000>;
+			isp_peak_byte_per_pixel = <5>;
+			isp_bw_margin_pct = <25>;
+		};
+	};
+};
