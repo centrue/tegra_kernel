@@ -40,6 +40,14 @@ class AutofocusTests(unittest.TestCase):
         self.assertIsNone(af.choose_peak([(1, 1.), (2, 1.01), (3, 1.)]))
         self.assertEqual(af.choose_peak([(1, 1.), (2, 2.), (3, 1.)]), (2, 2.))
 
+    def test_motion_thumbnail_averages_fine_texture(self):
+        # A one-pixel phase change in fine screen texture is not a new subject.
+        w, h = 320, 240
+        frames = [bytes(80 if (x+phase)%2 else 120 for y in range(h) for x in range(w))
+                  for phase in (0, 1)]
+        a, b = [af.measure_luma(frame,w,h) for frame in frames]
+        self.assertLess(af.distance(a['thumbnail'],b['thumbnail']), .08)
+
     def drive(self, engine, peak=688, seconds=24., start=0.):
         now = start
         seq = 0

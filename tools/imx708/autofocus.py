@@ -42,8 +42,9 @@ def measure_luma(data, width, height, stride=None, offset=0,
     signal = max(mean-16, 4.)
     clipped = saturated/count
     # Small normalized image distinguishes motion/scene change from brightness.
-    thumbnail = tuple((data[offset+int(y0+(j+.5)*(y1-y0)/12)*stride+
-                            int(x0+(i+.5)*(x1-x0)/16)]-mean)/signal
+    thumbnail = tuple((sum(data[offset+int(y0+(j+(b+.5)/4)*(y1-y0)/12)*stride+
+                                     int(x0+(i+(a+.5)/4)*(x1-x0)/16)]
+                            for b in range(4) for a in range(4))/16-mean)/signal
                       for j in range(12) for i in range(16))
     reason = ('dark' if mean < 20 else 'saturated' if mean > 240 or clipped > .05
               else 'low texture' if variance < 9 else '')
