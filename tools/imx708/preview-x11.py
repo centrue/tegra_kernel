@@ -17,7 +17,17 @@ import socket
 import threading
 import time
 
-from af_runtime import Mailbox, NanoLens, Worker, i420_bytes, luma_bytes
+from af_runtime import CameraLocks, Mailbox, NanoLens, Worker, i420_bytes, luma_bytes
+
+
+def shutdown_camera(worker, restore_locks, stop_pipeline):
+    if worker is not None:
+        worker.close()
+    # Lens closure has completed before either operation can stop sensor power.
+    try:
+        restore_locks()
+    finally:
+        stop_pipeline()
 
 
 def control_command(worker, command):
@@ -124,20 +134,7 @@ def main():
         (args.output/(stem+'.json')).write_text(json.dumps(dict(status, width=frame['width'],
             height=frame['height'], pts=frame['pts'], sequence=frame['sequence'],
             captured_at=frame['captured_at']), indent=2)+'\n')
-    saved_locks = None
-    def set_locks(on):
-        nonlocal saved_locks
-        if on and saved_locks is None:
-            saved_locks = (camera.get_property('aelock'), camera.get_property('awblock'))
-            camera.set_property('aelock', True)
-            camera.set_property('awblock', True)
-        elif not on and saved_locks is not None:
-            ae, awb = saved_locks
-            try:
-                camera.set_property('aelock', ae)
-                camera.set_property('awblock', awb)
-            finally:
-                saved_locks = None
+    set_locks = CameraLocks(camera)
     callback_error = []
     def new_sample(sink):
         try:
@@ -234,14 +231,13 @@ def main():
                     except (OSError,ValueError,RuntimeError) as error:
                         connection.sendall(('ERROR: %s\n'%error).encode())
     finally:
-        try:
-            if worker is not None:
-                worker.close()
-        finally:
-            set_locks(False)
+        def stop_pipeline():
             pipeline.send_event(Gst.Event.new_eos())
             bus.timed_pop_filtered(int(2*Gst.SECOND), Gst.MessageType.EOS|Gst.MessageType.ERROR)
             pipeline.set_state(Gst.State.NULL)
+        try:
+            shutdown_camera(worker,lambda:set_locks(False),stop_pipeline)
+        finally:
             server.close()
             path.unlink(missing_ok=True)
             journal.close()

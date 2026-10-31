@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).parents[1] / 'tools/imx708'
 sys.path.insert(0, str(ROOT))
@@ -98,6 +99,66 @@ class RuntimeTests(unittest.TestCase):
                 preview.control_command(worker, 'af nonsense')
         finally:
             worker.close()
+
+    def test_partial_camera_lock_failure_restores_both_properties(self):
+        self.assertTrue(hasattr(runtime,'CameraLocks'), 'transactional camera locks missing')
+        class Camera:
+            def __init__(self):self.values={'aelock':False,'awblock':False};self.fail=('awblock',True)
+            def get_property(self,key):return self.values[key]
+            def set_property(self,key,value):
+                if self.fail==(key,value):
+                    self.fail=None
+                    raise RuntimeError('property failure')
+                self.values[key]=value
+        camera=Camera();locks=runtime.CameraLocks(camera)
+        with self.assertRaises(RuntimeError):locks(True)
+        self.assertEqual(camera.values,{'aelock':False,'awblock':False})
+        locks(True);camera.fail=('aelock',False)
+        with self.assertRaises(RuntimeError):locks(False)
+        self.assertFalse(camera.values['awblock'])
+        locks(False)
+        self.assertEqual(camera.values,{'aelock':False,'awblock':False})
+
+    def test_shutdown_keeps_pipeline_until_worker_confirmed_closed(self):
+        spec=importlib.util.spec_from_file_location('preview',ROOT/'preview-x11.py')
+        preview=importlib.util.module_from_spec(spec);spec.loader.exec_module(preview)
+        self.assertTrue(hasattr(preview,'shutdown_camera'),'ordered shutdown missing')
+        order=[]
+        class Closing:
+            def close(self):
+                order.append('lens')
+                raise RuntimeError('still closing')
+        with self.assertRaises(RuntimeError):
+            preview.shutdown_camera(Closing(),lambda:order.append('locks'),lambda:order.append('stream'))
+        self.assertEqual(order,['lens'])
+
+    def test_worker_close_waits_for_lens_beyond_previous_join_timeout(self):
+        entered,release=threading.Event(),threading.Event()
+        class Slow(Lens):
+            def close(self):
+                entered.set();release.wait(2);super().close()
+        lens=Slow();worker=runtime.Worker(runtime.Mailbox(),lens,lambda on:None)
+        worker.start()
+        original_join=worker.thread.join
+        timeouts=[]
+        def record_join(timeout=None):
+            timeouts.append(timeout)
+            # Reproduce the old timeout without waiting5s.
+            original_join(.01 if timeout is not None else None)
+        errors=[]
+        def close():
+            try:worker.close()
+            except Exception as error:errors.append(error)
+        with mock.patch.object(worker.thread,'join',record_join):
+            caller=threading.Thread(target=close);caller.start()
+            self.assertTrue(entered.wait(1))
+            # A timeout must not let the caller tear down the stream early.
+            caller.join(.05)
+            self.assertTrue(caller.is_alive())
+            release.set();caller.join(1)
+        self.assertFalse(errors)
+        self.assertTrue(lens.closed)
+        self.assertEqual(timeouts,[None])
 
 
 if __name__ == '__main__':

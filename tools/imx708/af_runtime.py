@@ -78,6 +78,38 @@ class NanoLens:
             self.fd = None
 
 
+class CameraLocks:
+    """Restore independent camera properties even after a partial setter error."""
+    def __init__(self, camera):
+        self.camera = camera
+        self.saved = {}
+
+    def __call__(self, on):
+        if on:
+            if self.saved:
+                raise RuntimeError('camera lock restoration still pending')
+            self.saved = {key:self.camera.get_property(key) for key in ('aelock','awblock')}
+            try:
+                for key in self.saved:
+                    self.camera.set_property(key,True)
+            except Exception as error:
+                try:
+                    self(False)
+                except Exception as restore_error:
+                    raise RuntimeError('%s; rollback: %s'%(error,restore_error)) from error
+                raise
+        else:
+            errors = []
+            for key,value in list(self.saved.items()):
+                try:
+                    self.camera.set_property(key,value)
+                    del self.saved[key]
+                except Exception as error:
+                    errors.append('%s: %s'%(key,error))
+            if errors:
+                raise RuntimeError('; '.join(errors))
+
+
 class Worker:
     def __init__(self, mailbox, lens, set_locks, position=688, limits=(352, 928),
                  roi=(.25, .25, .5, .5), emit=None, save=None):
@@ -126,6 +158,8 @@ class Worker:
     def _sync_locks(self):
         desired = self.controller.searching
         if desired != self.search_locked:
+            # Mark dirty before calling: a setter can partially succeed.
+            self.search_locked = True
             self.set_locks(desired)
             self.search_locked = desired
 
@@ -143,7 +177,12 @@ class Worker:
 
     def _error(self, error):
         self.controller.error(str(error))
-        self._sync_locks()
+        try:
+            self.set_locks(False)
+            self.search_locked = False
+        except Exception as restore_error:
+            self.search_locked = True
+            self.emit(dict(event='restore_error',reason=str(restore_error)))
 
     def _run(self):
         try:
@@ -226,6 +265,6 @@ class Worker:
             self.stopping = True
             self.generation += 1
         self.mailbox.wake()
-        self.thread.join(timeout=5)
-        if self.thread.is_alive():
-            raise RuntimeError('AF worker failed to stop before camera shutdown')
+        # Never let a timeout turn the camera off while an in-flight lens I/O or
+        # scoring operation still owns the lens FD. Frame waits are interruptible.
+        self.thread.join()
