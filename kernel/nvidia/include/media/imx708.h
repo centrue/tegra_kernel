@@ -4,9 +4,28 @@
 #ifndef __IMX708_H__
 #define __IMX708_H__
 
-#define IMX708_MIN_GAIN			0
-#define IMX708_MAX_GAIN			978
-#define IMX708_ANALOG_GAIN_C0		516
+#define IMX708_MIN_GAIN			112
+#define IMX708_MAX_GAIN			960
+#define IMX708_ANALOG_GAIN_C0		1024
+
+/* Sony reciprocal gain model; DT uses gain_factor units per multiplier. */
+static inline unsigned int imx708_gain_code(unsigned long long gain,
+	unsigned int gain_factor)
+{
+	unsigned long long reciprocal;
+	unsigned int code;
+
+	if (!gain || !gain_factor)
+		return IMX708_MIN_GAIN;
+	reciprocal = (unsigned long long)IMX708_ANALOG_GAIN_C0 * gain_factor / gain;
+	code = reciprocal >= IMX708_ANALOG_GAIN_C0 ? 0 :
+		IMX708_ANALOG_GAIN_C0 - reciprocal;
+	if (code < IMX708_MIN_GAIN)
+		code = IMX708_MIN_GAIN;
+	if (code > IMX708_MAX_GAIN)
+		code = IMX708_MAX_GAIN;
+	return code;
+}
 #define IMX708_SHIFT_8_BITS		8
 #define IMX708_MIN_FRAME_LENGTH		256
 #define IMX708_MAX_FRAME_LENGTH		65535

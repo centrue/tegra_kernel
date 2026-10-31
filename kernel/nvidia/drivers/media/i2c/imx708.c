@@ -117,13 +117,9 @@ static int imx708_set_gain(struct tegracam_device *tc_dev, s64 val)
 	if (val <= 0)
 		return -EINVAL;
 
-	gain = IMX708_ANALOG_GAIN_C0 -
-		((s64)IMX708_ANALOG_GAIN_C0 *
-		 mode->control_properties.gain_factor / val);
-	if (gain < IMX708_MIN_GAIN)
-		gain = IMX708_MIN_GAIN;
-	else if (gain > IMX708_MAX_GAIN)
-		gain = IMX708_MAX_GAIN;
+	gain = imx708_gain_code(val, mode->control_properties.gain_factor);
+	dev_dbg(s_data->dev, "gain request=%lld factor=%u register=%lld\n",
+		val, mode->control_properties.gain_factor, gain);
 
 	return imx708_write_u16(s_data, IMX708_ANALOG_GAIN_ADDR_MSB,
 		(u16)gain);
