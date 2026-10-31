@@ -1,7 +1,7 @@
 # IMX708 measured ISP candidates
 
 These tools implement Task 3 of the colour/focus plan. They contain **no
-calibrated IMX708 payload**. A real input capture and explicit reference kind
+general-purpose calibrated IMX708 payload**. A real input capture and explicit reference kind
 are required to produce a measurement JSON or ISP candidate. Independent ISP
 captures and validation under other illuminants remain necessary before release.
 
@@ -193,3 +193,37 @@ loading, CCT interpolation, AE/AWB convergence or colour improvement. Reflective
 chart fits also use nominal patch references; absolute characterization needs
 measured chart spectra/illumination and independent validation. No permanent
 calibrated file is included without measured chart input.
+
+## Nano screen neutral-balance experiment (2026-10-31)
+
+`experiments/screen-wb-black.isp` and its JSON retain the measured phone-screen
+neutral point: RAW R/G=0.43947, B/G=0.60020; FusionLights={396,900,900,540}.
+The initial AWB slot is4 (Nano R32.7.6 rejects0). The mode1 RAW dark pedestal
+was near64 DN, so this experiment uses64/1023 for each optical-black bias.
+CCM is explicitly identity, **not a fitted colour calibration**, and6500 K is
+only a nominal display label. No LSC correction was fitted. Clamps are opened
+following the OV5647 reference workflow; its sensor-specific numeric tuning is
+not copied. Only2304x1296 mode1 is validated.
+
+The candidate removes the purple pedestal in controlled ISP captures. Exposure,
+analog gain and ISP digital gain must all be locked for comparisons; leaving
+ISP digital gain automatic caused clipping in the first high-exposure trial.
+Data and pictures: project `tmp/colour-focus/isp-trials/`. This phone setup is
+not evidence of reflective-object or cross-illuminant accuracy. Screen position
+changed between captures, so no full-chart delta-E comparison is asserted.
+
+The tools DEB ships the experiment under `/usr/share/imx708/isp/experiments/`
+without activating it. The test Nano currently has it explicitly installed as
+`/var/nvidia/nvcam/settings/camera_overrides.isp`; its previous state is recorded
+in `/home/jetson/imx708-deploy/isp-before-screen-tune/`.
+
+To preview with controlled exposure through local X11:
+
+```sh
+ssh -Y jetson@jetson-nano 'python3 /opt/imx708-tools/preview-x11.py \
+  --focus 688 --exposure-ns 20000000 --gain 4 --isp-digital-gain 1'
+```
+
+Stop an existing preview before another capture. Restore the original override
+(or remove it if originally absent), clear `nvcam_cache_*.bin` and restart
+`nvargus-daemon` to roll back. ISP changes do not require a kernel rebuild.

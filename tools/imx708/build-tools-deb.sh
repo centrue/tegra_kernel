@@ -13,6 +13,13 @@ for file in "$root"/tools/imx708/*.py "$root"/tools/imx708/check-lens.sh "$root"
     install -m 0755 "$file" "$stage/opt/imx708-tools/"
 done
 install -m 0644 "$root/isp/imx708/README.md" "$stage/usr/share/doc/imx708-camera-tools/README.md"
+if [[ -d "$root/isp/imx708/experiments" ]]; then
+    mkdir -p "$stage/usr/share/imx708/isp/experiments"
+    for file in "$root"/isp/imx708/experiments/*.isp "$root"/isp/imx708/experiments/*.json; do
+        [[ -f $file ]] || continue
+        install -m 0644 "$file" "$stage/usr/share/imx708/isp/experiments/"
+    done
+fi
 if [[ -f "$root/isp/imx708/COPYING" ]]; then
     install -m 0644 "$root/isp/imx708/COPYING" "$stage/usr/share/doc/imx708-camera-tools/copyright"
 fi
