@@ -8,3 +8,7 @@ Plan: docs/superpowers/plans/2026-10-31-imx708-autofocus.md
 - Ruling: use existing checkout per AGENTS.md; retain unrelated dirty changes.
 - Pre-flight: controller emits lens actions, runtime is sole writer; cancellation
   must be checked before every action. Scoring uses I420 Y, never RAW black64.
+- Task1: controller/scorer added; RED7 failures (module absent), GREEN33 full
+  Python tests. Stride/normalization, peak bracketing, stale frames, cancellation,
+  stationary60s, scene-change and timeout covered. Motion evaluated every frame
+  before5Hz decisions to avoid periodic-motion aliasing.
