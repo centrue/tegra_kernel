@@ -25,5 +25,13 @@ class FocusScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.measure(struct.pack('<H',120)*(64*64),64,64,(50,50,40,40))
 
+    def test_rejects_illumination_drift_and_unstable_frames(self):
+        stable = [dict(mean=200,score=100,saturated_fraction=0)]*3
+        bright = [dict(mean=375,score=200,saturated_fraction=0)]*3
+        self.assertTrue(module.assess_samples(stable,136)['valid'])
+        self.assertFalse(module.assess_samples(bright,136)['valid'])
+        unstable = [dict(mean=v,score=100,saturated_fraction=0) for v in [180,200,220]]
+        self.assertFalse(module.assess_samples(unstable,136)['valid'])
+
 if __name__ == '__main__':
     unittest.main()

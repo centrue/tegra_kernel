@@ -20,10 +20,13 @@ from isp_tools import (GRAY_INDICES, PATTERNS, REFERENCE_LINEAR, fit_ccm,
 
 def fit(args):
     width, height = parse_size(args.size)
-    rgb = read_raw(args.raw, width, height, black=args.black, bayer=args.bayer,
-                   stride=args.stride, bit_depth=args.bit_depth, frame=args.frame)
+    planes = read_raw(args.raw, width, height, black=args.black, bayer=args.bayer,
+                   stride=args.stride, bit_depth=args.bit_depth, frame=args.frame,
+                   return_planes=True)
+    rgb = np.stack([planes[...,0], (planes[...,1]+planes[...,2])/2,
+                    planes[...,3]], axis=-1)
     centres = patch_centres(parse_corners(args.corners) / 2)
-    boxes = patch_boxes(rgb, centres, args.half)
+    boxes = patch_boxes(planes, centres, args.half)
     full = (1 << args.bit_depth) - 1 - args.black
     # Inspect every ROI pixel, not just its median, before fitting.
     if any(np.any(box >= args.clip_fraction * full) for box in boxes):

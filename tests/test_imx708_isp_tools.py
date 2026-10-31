@@ -39,6 +39,15 @@ class ISPToolsTests(unittest.TestCase):
         planes = isp.split_bayer(np.tile([[864, 464], [264, 164]], (2, 2)), 'RGGB')
         np.testing.assert_array_equal(planes[0, 0], [864, 464, 264, 164])
 
+    def test_keeps_both_green_planes_for_clipping_detection(self):
+        mosaic = np.full((4,4),128,dtype='<u2')
+        mosaic[0,1] = 1023
+        self.path.write_bytes(mosaic.tobytes())
+        planes = isp.read_raw(self.path,4,4,return_planes=True)
+        self.assertEqual(planes.shape,(2,2,4))
+        self.assertEqual(planes[0,0,1],959)
+        self.assertLess(isp.read_raw(self.path,4,4)[0,0,1],939.82)
+
     def test_wrong_bayer_is_observable_and_unknown_bayer_rejected(self):
         right = self.raw()
         wrong = isp.read_raw(self.path, 4, 4, stride=12, bayer='BGGR')

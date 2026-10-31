@@ -63,7 +63,7 @@ def split_bayer(mosaic, bayer='RGGB'):
 
 
 def read_raw(path, width, height, black=64., bayer='RGGB', stride=None,
-             bit_depth=10, frame=0):
+             bit_depth=10, frame=0, return_planes=False):
     """Load one complete frame as black-subtracted R,(Gr+Gb)/2,B DN.
 
     Stride is bytes per row including padding. Multiple frames are accepted only
@@ -94,6 +94,8 @@ def read_raw(path, width, height, black=64., bayer='RGGB', stride=None,
     if np.any(a > maximum):
         raise ValueError('samples exceed bit depth: packed/left-aligned RAW is unsupported')
     planes = split_bayer(a, bayer) - black
+    if return_planes:
+        return planes
     return np.stack([planes[..., 0], (planes[..., 1] + planes[..., 2]) / 2,
                      planes[..., 3]], axis=-1)
 

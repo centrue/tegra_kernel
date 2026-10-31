@@ -47,6 +47,23 @@ def measure(raw, width, height, roi=None):
         raise ValueError('image too small for ROI')
     return dict(score=square/count, mean=total/count, saturated_fraction=saturated/count)
 
+def assess_samples(samples, reference_signal=None):
+    """Reject flicker/drift before using absolute gradient energy as focus."""
+    means = [s['mean']-64 for s in samples]
+    scores = [s['score'] for s in samples]
+    signal = statistics.median(means)
+    score = statistics.median(scores)
+    reasons = []
+    if min(means)<=2 or any(s['saturated_fraction']>.05 for s in samples):
+        reasons.append('dark or saturated')
+    if (max(means)-min(means))/max(signal,1)>.1:
+        reasons.append('unstable illumination')
+    if (max(scores)-min(scores))/max(score,1)>.35:
+        reasons.append('unstable sharpness')
+    if reference_signal is not None and abs(signal-reference_signal)/max(reference_signal,1)>.2:
+        reasons.append('illumination drift across positions')
+    return dict(valid=not reasons, reasons=reasons, signal=signal)
+
 class Capture:
     def __init__(self, args, output):
         self.tmp = tempfile.TemporaryDirectory(prefix='imx708-focus-')
@@ -137,22 +154,29 @@ def main():
                     samples.append(measure(raw, args.width, args.height, roi))
                 record = dict(position=position, dac=dac, samples=samples,
                               score=statistics.median(s['score'] for s in samples))
-                if any(s['mean'] <= 66 or s['saturated_fraction'] > 0.05 for s in samples):
-                    record['valid'] = False
-                else:
-                    record['valid'] = True
+                record.update(assess_samples(samples))
                 records.append(record)
                 (args.output / ('focus-%04d.raw' % position)).write_bytes(raw)
                 (args.output / 'scan.json').write_text(json.dumps(records, indent=2)+'\n')
                 print(json.dumps(record), flush=True)
+        def stable_records():
+            initially_valid=[r for r in records if assess_samples(r['samples'])['valid']]
+            reference=statistics.median(r['signal'] for r in initially_valid) if initially_valid else None
+            for r in records:
+                r.update(assess_samples(r['samples'],reference))
+            (args.output/'scan.json').write_text(json.dumps(records,indent=2)+'\n')
+            return [r for r in records if r['valid']]
         scan(positions)
-        valid = [r for r in records if r['valid']]
+        valid = stable_records()
         if not valid:
             raise RuntimeError('no valid focus samples: check scene/exposure')
         best = max(valid, key=lambda r:r['score'])
         if args.fine:
             scan(range(max(0,best['position']-28), min(1023,best['position']+28)+1, 4))
-            best = max((r for r in records if r['valid']), key=lambda r:r['score'])
+            valid=stable_records()
+            if not valid:
+                raise RuntimeError('illumination changed during fine scan')
+            best = max(valid, key=lambda r:r['score'])
         fcntl.ioctl(lens, 0xc008561c, struct.pack('Ii', 0x009a090a, best['position']))
         for _ in range(8):
             cap.frame()
