@@ -258,7 +258,8 @@ def generate_override(config):
         source, _, fusion = validated[slot * len(validated) // 8]
         out.append('# Measurement SHA256: ' + source['capture']['sha256'])
         out.append('awb.v4.FusionLights[%d] = {%s};' % (slot, ','.join(map(str, fusion))))
-    out.append('awb.v4.FusionInitLight = 0;')
+    # R32.7.6 rejects zero here; slot 4 is accepted by the Nano parser.
+    out.append('awb.v4.FusionInitLight = 4;')
     out.append('colorCorrection.numColorCorrectionMatrices = %d;' % len(validated))
     for i, (source, matrix, _) in enumerate(validated):
         out.append('colorCorrection.set[%d].cct = %g;' % (i, source['cct']))

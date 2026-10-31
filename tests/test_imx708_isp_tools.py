@@ -126,6 +126,7 @@ class ISPToolsTests(unittest.TestCase):
         self.assertEqual(output.count('awb.v4.FusionLights['), 8)
         self.assertIn('awb.v4.FusionLights[0] = {450,900,900,225};', output)
         self.assertIn('colorCorrection.numColorCorrectionMatrices = 1;', output)
+        self.assertIn('awb.v4.FusionInitLight = 4;', output)
         self.assertIn('colorCorrection.set[0].cct = 5000;', output)
         self.assertIn('ccMatrix[0] = { 1.2, -0.1, 0.05, 0.0 };', output)
         self.assertNotIn('lensShading', output)
@@ -291,6 +292,13 @@ for arg in sys.argv:
         self.assertIn('nvvidconv', (output / 'command.txt').read_text())
         self.assertIn('format=NV12', (output / 'command.txt').read_text())
         self.assertIn('format=I420', (output / 'command.txt').read_text())
+
+    def test_capture_accepts_r32_found_override_after_successful_capture(self):
+        result, override, output, _, _ = self.capture('candidate',
+            journal='---- imager: Found override file [{override}]. ----')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(json.loads((output/'metadata.json').read_text())['override_load_verified'])
+        self.assertEqual(override.read_text(),'original\n')
 
     def test_capture_parser_error_restores_and_fails(self):
         result, override, output, calls, _ = self.capture('candidate', journal='Bad parameter at Line 3')

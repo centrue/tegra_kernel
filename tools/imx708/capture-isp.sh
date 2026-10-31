@@ -204,8 +204,8 @@ if [[ -n $override_sha ]]; then
     if python3 - "$out/journal.log" "$override" <<'PY'
 import pathlib, re, sys
 lines = pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines()
-positive = re.compile(r'\b(loaded|read|using|applied)\b', re.I)
-path = re.compile(re.escape(sys.argv[2]) + r'''(?=$|[\s"';:,])''')
+positive = re.compile(r'\b(loaded|read|using|applied)\b|Found override file \[', re.I)
+path = re.compile(re.escape(sys.argv[2]) + r'''(?=$|[\s"';:,\]])''')
 negative = re.compile(r'\b(no|not|fail(?:ed|ure)?|error|cannot|could not|attempt(?:ing)?)\b', re.I)
 ok = any(path.search(line) and positive.search(line) and not negative.search(line) for line in lines)
 sys.exit(0 if ok else 1)
