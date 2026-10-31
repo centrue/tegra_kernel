@@ -23,25 +23,31 @@ def measure_luma(data, width, height, stride=None, offset=0,
     x0, y0, x1, y1 = int(x*width), int(y*height), int((x+w)*width), int((y+h)*height)
     if min(x1-x0, y1-y0) < 12:
         raise ValueError('ROI must cover at least12x12 pixels')
-    values, energy = [], 0.
-    for yy in range(y0, y1-2, 2):
+    total = total_square = count = saturated = energy = 0
+    # Sparse non-power-of-two sampling avoids aligning every sample with a
+    # repetitive screen pattern; integer moments avoid statistics' slow exact
+    # rational arithmetic on the Nano's Cortex-A57.
+    for yy in range(y0, y1-2, 3):
         row = offset+yy*stride
-        for xx in range(x0, x1-2, 2):
+        for xx in range(x0, x1-2, 3):
             p = row+xx
             value = data[p]
-            values.append(value)
+            total += value
+            total_square += value*value
+            count += 1
+            saturated += value >= 250
             energy += (value-data[p+2])**2+(value-data[p+2*stride])**2
-    mean = statistics.mean(values)
-    variance = statistics.pvariance(values, mean)
+    mean = total/count
+    variance = max(0., total_square/count-mean*mean)
     signal = max(mean-16, 4.)
-    clipped = sum(v >= 250 for v in values)/len(values)
+    clipped = saturated/count
     # Small normalized image distinguishes motion/scene change from brightness.
     thumbnail = tuple((data[offset+int(y0+(j+.5)*(y1-y0)/12)*stride+
                             int(x0+(i+.5)*(x1-x0)/16)]-mean)/signal
                       for j in range(12) for i in range(16))
     reason = ('dark' if mean < 20 else 'saturated' if mean > 240 or clipped > .05
               else 'low texture' if variance < 9 else '')
-    return dict(score=energy/(2*len(values)*signal**2), mean=mean,
+    return dict(score=energy/(2*count*signal**2), mean=mean,
                 variance=variance, clipped=clipped, thumbnail=thumbnail,
                 valid=not reason, reason=reason)
 
