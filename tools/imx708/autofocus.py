@@ -27,9 +27,9 @@ def measure_luma(data, width, height, stride=None, offset=0,
     # Sparse non-power-of-two sampling avoids aligning every sample with a
     # repetitive screen pattern; integer moments avoid statistics' slow exact
     # rational arithmetic on the Nano's Cortex-A57.
-    for yy in range(y0, y1-2, 3):
+    for yy in range(y0, y1-2, 5):
         row = offset+yy*stride
-        for xx in range(x0, x1-2, 3):
+        for xx in range(x0, x1-2, 5):
             p = row+xx
             value = data[p]
             total += value
