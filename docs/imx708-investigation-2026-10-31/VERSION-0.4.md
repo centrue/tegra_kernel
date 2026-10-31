@@ -25,3 +25,23 @@ parameter changes stop AF before changing camera properties. JSON presets
 include exact settings, focus, ROI and ISP SHA; snapshots include the filters.
 GUI embeds child ximagesink into one GTK3 window via X11 window handle, preserving
 the producer's headless NVIDIA EGL environment. New package version0.4.0.
+
+Launch (close existing preview first):
+
+```
+ssh -Y jetson@jetson-nano 'sudo -n env DISPLAY="$DISPLAY" XAUTHORITY="$HOME/.Xauthority" python3 /opt/imx708-tools/camera-tuner.py --focus 600'
+```
+
+Manual controls are immediate; default AF is off. Click a textured target in
+the video to choose a30% ROI and trigger one-shot AF. Sliders/spinboxes expose
+manual focus, native exposure/gain/WB modes and post-ISP RGB/contrast/gamma.
+Save/load/reset/snapshot flush pending slider edits before acting. Defaults
+save to `/home/jetson/imx708-deploy/manual-tuning/settings.json`; snapshot PNGs
+are saved next to it. RGB0.5 is neutral. Slider requests are distinguished from
+sensor register readbacks. Current mode can clamp long exposure requests;
+consult the actual exposure label rather than assuming the requested value.
+
+Hardware progress: native5ms/10ms requests read back372/748 coarse lines;
+gain2 reads512. First newCDAF run locked600 in4.47s. Subsequent independent
+dense scan saw large motion/brightness changes, so it is not a valid90% quality
+comparison. Stable near/far and continuous AF still require scene testing.

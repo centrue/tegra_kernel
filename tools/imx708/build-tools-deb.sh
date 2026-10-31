@@ -30,6 +30,7 @@ Version: $version
 Architecture: all
 Maintainer: Jetson camera workspace
 Depends: python3, python3-gi, python3-gst-1.0, gir1.2-gtk-3.0, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, v4l-utils, gstreamer1.0-tools, gstreamer1.0-x, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, frei0r-plugins, ffmpeg
+Recommends: fonts-wqy-microhei
 Section: video
 Priority: optional
 Description: IMX708 live tuning GUI and libcamera-style contrast autofocus
