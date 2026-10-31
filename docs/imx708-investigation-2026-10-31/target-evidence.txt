@@ -1,0 +1,86 @@
+Linux jetson-nano 4.9.337-tegra #1 SMP PREEMPT Mon Nov 4 23:41:41 PST 2024 aarch64 aarch64 aarch64 GNU/Linux
+tegraid=21.1.2.0.0 ddr_die=4096M@2048M section=512M memtype=0 vpr_resize usb_port_owner_info=0 lane_owner_info=0 emc_max_dvfs=0 touch_id=0@63 video=tegrafb no_console_suspend=1 console=ttyS0,115200n8 debug_uartport=lsport,4 earlyprintk=uart8250-32bit,0x70006000 maxcpus=4 usbcore.old_scheme_first=1 lp0_vec=0x1000@0xff780000 core_edp_mv=1125 core_edp_ma=4000 gpt  earlycon=uart8250,mmio32,0x70006000  root=/dev/mmcblk0p1 rw rootwait rootfstype=ext4 console=ttyS0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0 systemd.unified_cgroup_hierarchy=0 root=/dev/mmcblk0p1 rw rootwait rootfstype=ext4 console=ttyS0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0
+TIMEOUT 30
+DEFAULT JetsonIO
+
+MENU TITLE L4T boot options
+
+LABEL primary
+      MENU LABEL primary kernel
+      LINUX /boot/Image
+      FDT /boot/tegra210-p3448-0000-p3449-0000-a02.dtb
+      INITRD /boot/initrd
+      APPEND ${cbootargs} systemd.unified_cgroup_hierarchy=0 root=/dev/mmcblk0p1 rw rootwait rootfstype=ext4 console=ttyS0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0 
+
+LABEL JetsonIO
+	MENU LABEL Custom Header Config: <CSI Camera IMX708>
+	LINUX /boot/Image
+	FDT /boot/kernel_tegra210-p3448-0000-p3449-0000-a02-user-custom.dtb
+	INITRD /boot/initrd
+	APPEND ${cbootargs} systemd.unified_cgroup_hierarchy=0 root=/dev/mmcblk0p1 rw rootwait rootfstype=ext4 console=ttyS0,115200n8 console=tty0 fbcon=map:0 net.ifnames=0
+63fff7ba49e14a445e45fb26b1b48097a6af20320fb5fee014104100751eb42b  /boot/Image
+Linux version 4.9.337-tegra (buildbrain@mobile-u64-5499-d7000) (gcc version 7.3.1 20180425 [linaro-7.3-2018.05 revision d29120a424ecfbc167ef90065c0eeb7f91977701] (Linaro GCC 7.3-2018.05) ) #1 SMP PREEMPT Mon Nov 4 23:41:41 PST 2024
+CONFIG_VIDEO_IMX185=m
+CONFIG_VIDEO_IMX477=y
+CONFIG_VIDEO_IMX219=y
+CONFIG_VIDEO_IMX268=y
+CONFIG_VIDEO_IMX274=m
+CONFIG_VIDEO_IMX318=y
+CONFIG_VIDEO_IMX390=y
+CONFIG_VIDEO_IMX204=y
+CONFIG_DYNAMIC_DEBUG=y
+OF_NAME=imx708_a
+OF_FULLNAME=/host1x/i2c@546c0000/imx708_a@1a
+OF_COMPATIBLE_0=sony,imx708
+OF_COMPATIBLE_N=1
+MODALIAS=i2c:imx708
+bq27xxx-battery
+cs53l30
+dummy
+imx219
+imx268
+imx318
+imx390
+imx477
+ina219x
+ina230x
+ina3221x
+lc898212
+lp855x
+lt6911uxc
+max77620
+max9295
+max9296
+nct1008_nct72
+ov10823
+ov23850
+ov9281
+pca953x
+pca954x
+pca9570
+PEX9749 thermal sensor
+rt5640
+rt5659
+rtc-rx8025
+sgtl5000
+stepper_pca
+tas2552
+tegra_edid
+tmpm32xi2c
+tps65132
+ucsi_ccg
+usb3503
+kernel/drivers/media/i2c/imx708.ko
+[    0.000000] Linux version 4.9.337-tegra (buildbrain@mobile-u64-5499-d7000) (gcc version 7.3.1 20180425 [linaro-7.3-2018.05 revision d29120a424ecfbc167ef90065c0eeb7f91977701] (Linaro GCC 7.3-2018.05) ) #1 SMP PREEMPT Mon Nov 4 23:41:41 PST 2024
+[    0.475544] iommu: Adding device 546c0000.i2c to group 22
+[    0.477027] tegra-pmc 7000e400.pmc: i2c-thermtrip node not found, emergency thermal reset disabled.
+[    0.530278] iommu: Adding device 7000c000.i2c to group 26
+[    0.530558] iommu: Adding device 7000c400.i2c to group 27
+[    0.530831] iommu: Adding device 7000c500.i2c to group 28
+[    0.531146] iommu: Adding device 7000c700.i2c to group 29
+[    0.531421] iommu: Adding device 7000d000.i2c to group 30
+[    0.531687] iommu: Adding device 7000d100.i2c to group 31
+[    0.576906] GPIO line 151 (camera-control-output-low) hogged as output/low
+[    1.104691] tegra_camera_platform tegra-camera-platform: tegra_camera_probe:camera_platform_driver probe
+[    1.104939] misc tegra_camera_ctrl: tegra_camera_isomgr_register isp_iso_bw=3925327, vi_iso_bw=1250000, max_bw=3925327
+[    4.771913] i2c /dev entries driver

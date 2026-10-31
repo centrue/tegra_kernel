@@ -27,3 +27,9 @@ modules.order
 .DS_Store
 .vscode/
 .idea/
+
+*.xz
+toolchain/
+
+public_sources/
+tmp/

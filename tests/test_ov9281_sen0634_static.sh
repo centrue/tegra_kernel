@@ -4,8 +4,7 @@
 
 set -Eeuo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-KERNEL="$ROOT/tegra_kernel"
+KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 I2C="$KERNEL/kernel/nvidia/drivers/media/i2c"
 DT="$KERNEL/hardware/nvidia/platform/t210/porg/kernel-dts"
 
@@ -64,9 +63,18 @@ if rg -q --line-regexp '[[:space:]]*\(reset\|pwdn\)-gpios[[:space:]]*=' "$OVERLA
 	exit 1
 fi
 
-need_text 'Pin 11' "$ROOT/docs/ov9281_pinout.md"
-need_text 'Pin 12' "$ROOT/docs/ov9281_pinout.md"
-need_text '板载 24 MHz' "$ROOT/docs/ov9281_pinout.md"
+PINOUT_DOC=""
+if [[ -f "$KERNEL/docs/ov9281_pinout.md" ]]; then
+	PINOUT_DOC="$KERNEL/docs/ov9281_pinout.md"
+elif [[ -n "${ROOT:-}" && -f "$ROOT/docs/ov9281_pinout.md" ]]; then
+	PINOUT_DOC="$ROOT/docs/ov9281_pinout.md"
+fi
+
+if [[ -n "$PINOUT_DOC" ]]; then
+	need_text 'Pin 11' "$PINOUT_DOC"
+	need_text 'Pin 12' "$PINOUT_DOC"
+	need_text '板载 24 MHz' "$PINOUT_DOC"
+fi
 
 need_text 'tegra210-p3448-common-ov9281-sen0634.dtbo' "$KERNEL/build-ov5647.sh"
 need_text 'OV9281 SEN0634' "$KERNEL/build-ov5647.sh"

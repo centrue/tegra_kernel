@@ -10,9 +10,38 @@ export PATH="/usr/sbin:/sbin:${PATH}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KERNEL_SRC="${SCRIPT_DIR}/kernel/kernel-4.9"
 DT_DIR="${SCRIPT_DIR}/hardware/nvidia/platform/t210/porg/kernel-dts"
-JETSON_IO_SOURCE="${SCRIPT_DIR}/../Linux_for_Tegra/source/public/nvidia-l4t-jetson-io-32.7.6-20241104234540/rootfs/opt/nvidia/jetson-io"
-BASE_DTB="${SCRIPT_DIR}/../Linux_for_Tegra/kernel/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
-TOOLCHAIN_ROOT="${CROSS_COMPILE_AARCH64_PATH:-${SCRIPT_DIR}/../gcc}"
+if [[ -z "${JETSON_IO_SOURCE:-}" ]]; then
+	if [[ -d "${SCRIPT_DIR}/bsp/jetson-io" ]]; then
+		JETSON_IO_SOURCE="${SCRIPT_DIR}/bsp/jetson-io"
+	else
+		JETSON_IO_SOURCE="${SCRIPT_DIR}/../Linux_for_Tegra/source/public/nvidia-l4t-jetson-io-32.7.6-20241104234540/rootfs/opt/nvidia/jetson-io"
+	fi
+fi
+
+if [[ -z "${BASE_DTB:-}" ]]; then
+	if [[ -f "${SCRIPT_DIR}/bsp/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb" ]]; then
+		BASE_DTB="${SCRIPT_DIR}/bsp/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
+	else
+		BASE_DTB="${SCRIPT_DIR}/../Linux_for_Tegra/kernel/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
+	fi
+fi
+
+if [[ -n "${CROSS_COMPILE_AARCH64_PATH:-}" ]]; then
+	TOOLCHAIN_ROOT="${CROSS_COMPILE_AARCH64_PATH}"
+elif [[ -x "${SCRIPT_DIR}/toolchain/bin/aarch64-linux-gnu-gcc" ]]; then
+	TOOLCHAIN_ROOT="${SCRIPT_DIR}/toolchain"
+elif [[ -x "${SCRIPT_DIR}/gcc/bin/aarch64-linux-gnu-gcc" ]]; then
+	TOOLCHAIN_ROOT="${SCRIPT_DIR}/gcc"
+elif [[ -x "${SCRIPT_DIR}/../gcc/bin/aarch64-linux-gnu-gcc" ]]; then
+	TOOLCHAIN_ROOT="${SCRIPT_DIR}/../gcc"
+elif [[ -f "${SCRIPT_DIR}/l4t-gcc-7-3-1-toolchain-64-bit.tar.xz" ]]; then
+	echo "Unpacking local toolchain archive into ${SCRIPT_DIR}/toolchain..."
+	mkdir -p "${SCRIPT_DIR}/toolchain"
+	tar -xf "${SCRIPT_DIR}/l4t-gcc-7-3-1-toolchain-64-bit.tar.xz" -C "${SCRIPT_DIR}/toolchain" --strip-components=1
+	TOOLCHAIN_ROOT="${SCRIPT_DIR}/toolchain"
+else
+	TOOLCHAIN_ROOT="${SCRIPT_DIR}/toolchain"
+fi
 CROSS_COMPILE="${TOOLCHAIN_ROOT}/bin/aarch64-linux-gnu-"
 DRIVER_MODE="builtin"
 JOBS="$(nproc)"
@@ -955,10 +984,16 @@ tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-ow
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 
 echo "Repacking kernel and DTBs as container-installable L4T debs"
-L4T_KERNEL_DIR="${SCRIPT_DIR}/../Linux_for_Tegra/kernel"
 KERNEL_DEB_VERSION="4.9.337-tegra-32.7.6-20241104234540"
-OFFICIAL_KERNEL_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb"
-OFFICIAL_DTBS_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel-dtbs_${KERNEL_DEB_VERSION}_arm64.deb"
+if [[ -f "${SCRIPT_DIR}/bsp/deb/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb" ]]; then
+	L4T_KERNEL_DIR="${SCRIPT_DIR}/bsp/deb"
+	OFFICIAL_KERNEL_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb"
+	OFFICIAL_DTBS_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel-dtbs_${KERNEL_DEB_VERSION}_arm64.deb"
+else
+	L4T_KERNEL_DIR="${SCRIPT_DIR}/../Linux_for_Tegra/kernel"
+	OFFICIAL_KERNEL_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel_${KERNEL_DEB_VERSION}_arm64.deb"
+	OFFICIAL_DTBS_DEB="${L4T_KERNEL_DIR}/nvidia-l4t-kernel-dtbs_${KERNEL_DEB_VERSION}_arm64.deb"
+fi
 DEB_STAGE="${OUTPUT}/deb"
 KERNEL_PAYLOAD="${DEB_STAGE}/payload/nvidia-l4t-kernel"
 DTBS_PAYLOAD="${DEB_STAGE}/payload/nvidia-l4t-kernel-dtbs"
@@ -1082,59 +1117,61 @@ echo "dtbs deb:   $OUT_DTBS_DEB"
 echo "Jetson-IO Stage 2 deb: $OUT_JETSON_IO_DEB"
 
 if ((UPDATE_PACKAGE_LOCK)); then
-	PACKAGE_LOCK="${SCRIPT_DIR}/../Linux_for_Tegra/tools/jetson-jammy/package-lock.tsv"
-	[[ -f "$PACKAGE_LOCK" ]] || die "package lock missing: $PACKAGE_LOCK"
+	PACKAGE_LOCK="${PACKAGE_LOCK:-${SCRIPT_DIR}/../Linux_for_Tegra/tools/jetson-jammy/package-lock.tsv}"
+	if [[ ! -f "$PACKAGE_LOCK" ]]; then
+		echo "package lock update skipped (not present at $PACKAGE_LOCK); local standalone build complete"
+	else
+		kernel_package="$(dpkg-deb -f "$OUT_KERNEL_DEB" Package)"
+		kernel_version="$(dpkg-deb -f "$OUT_KERNEL_DEB" Version)"
+		kernel_filename="$(basename "$OUT_KERNEL_DEB")"
+		dtbs_package="$(dpkg-deb -f "$OUT_DTBS_DEB" Package)"
+		dtbs_version="$(dpkg-deb -f "$OUT_DTBS_DEB" Version)"
+		dtbs_filename="$(basename "$OUT_DTBS_DEB")"
+		kernel_hash="$(sha256sum "$OUT_KERNEL_DEB" | awk '{print $1}')"
+		dtbs_hash="$(sha256sum "$OUT_DTBS_DEB" | awk '{print $1}')"
+		lock_kernel_path="kernel/${kernel_filename}"
+		lock_dtbs_path="kernel/${dtbs_filename}"
+		lock_tmp="$(mktemp "${PACKAGE_LOCK}.tmp.XXXXXX")"
 
-	kernel_package="$(dpkg-deb -f "$OUT_KERNEL_DEB" Package)"
-	kernel_version="$(dpkg-deb -f "$OUT_KERNEL_DEB" Version)"
-	kernel_filename="$(basename "$OUT_KERNEL_DEB")"
-	dtbs_package="$(dpkg-deb -f "$OUT_DTBS_DEB" Package)"
-	dtbs_version="$(dpkg-deb -f "$OUT_DTBS_DEB" Version)"
-	dtbs_filename="$(basename "$OUT_DTBS_DEB")"
-	kernel_hash="$(sha256sum "$OUT_KERNEL_DEB" | awk '{print $1}')"
-	dtbs_hash="$(sha256sum "$OUT_DTBS_DEB" | awk '{print $1}')"
-	lock_kernel_path="kernel/${kernel_filename}"
-	lock_dtbs_path="kernel/${dtbs_filename}"
-	lock_tmp="$(mktemp "${PACKAGE_LOCK}.tmp.XXXXXX")"
-
-	# The lock paths are consumed relative to Linux_for_Tegra/. Update exactly
-	# the two local-L4T rows, preserving every unrelated package entry.
-	if ! awk -F '\t' -v OFS='\t' \
-		-v kp="$kernel_package" -v kv="$kernel_version" \
-		-v kf="$lock_kernel_path" -v kh="$kernel_hash" \
-		-v dp="$dtbs_package" -v dv="$dtbs_version" \
-		-v df="$lock_dtbs_path" -v dh="$dtbs_hash" '
-		BEGIN { kernel_rows = 0; dtbs_rows = 0 }
-		/^#/ || NF == 0 { print; next }
-		{
-			if ($1 == "local-l4t" && $2 == kp) {
-				if ($3 != kv || $4 != kf) exit 20
-				$5 = kh
-				kernel_rows++
-			} else if ($1 == "local-l4t" && $2 == dp) {
-				if ($3 != dv || $4 != df) exit 21
-				$5 = dh
-				dtbs_rows++
+		# The lock paths are consumed relative to Linux_for_Tegra/. Update exactly
+		# the two local-L4T rows, preserving every unrelated package entry.
+		if ! awk -F '\t' -v OFS='\t' \
+			-v kp="$kernel_package" -v kv="$kernel_version" \
+			-v kf="$lock_kernel_path" -v kh="$kernel_hash" \
+			-v dp="$dtbs_package" -v dv="$dtbs_version" \
+			-v df="$lock_dtbs_path" -v dh="$dtbs_hash" '
+			BEGIN { kernel_rows = 0; dtbs_rows = 0 }
+			/^#/ || NF == 0 { print; next }
+			{
+				if ($1 == "local-l4t" && $2 == kp) {
+					if ($3 != kv || $4 != kf) exit 20
+					$5 = kh
+					kernel_rows++
+				} else if ($1 == "local-l4t" && $2 == dp) {
+					if ($3 != dv || $4 != df) exit 21
+					$5 = dh
+					dtbs_rows++
+				}
+				print
 			}
-			print
-		}
-		END {
-			if (kernel_rows != 1 || dtbs_rows != 1) exit 22
-		}' "$PACKAGE_LOCK" > "$lock_tmp"; then
-		rm -f "$lock_tmp"
-		die "package lock does not contain the expected local-L4T kernel rows"
-	fi
+			END {
+				if (kernel_rows != 1 || dtbs_rows != 1) exit 22
+			}' "$PACKAGE_LOCK" > "$lock_tmp"; then
+			rm -f "$lock_tmp"
+			die "package lock does not contain the expected local-L4T kernel rows"
+		fi
 
-	# Install the exact bytes whose hashes were recorded. This keeps the lock
-	# consumable by fetch-package-cache.sh and container-build.sh.
-	install -m 0644 "$OUT_KERNEL_DEB" \
-		"${L4T_KERNEL_DIR}/${kernel_filename}"
-	install -m 0644 "$OUT_DTBS_DEB" \
-		"${L4T_KERNEL_DIR}/${dtbs_filename}"
-	mv "$lock_tmp" "$PACKAGE_LOCK"
-	echo "updated package lock: $PACKAGE_LOCK"
-	echo "installed locked kernel deb: ${L4T_KERNEL_DIR}/${kernel_filename}"
-	echo "installed locked dtbs deb:   ${L4T_KERNEL_DIR}/${dtbs_filename}"
+		# Install the exact bytes whose hashes were recorded. This keeps the lock
+		# consumable by fetch-package-cache.sh and container-build.sh.
+		install -m 0644 "$OUT_KERNEL_DEB" \
+			"${L4T_KERNEL_DIR}/${kernel_filename}"
+		install -m 0644 "$OUT_DTBS_DEB" \
+			"${L4T_KERNEL_DIR}/${dtbs_filename}"
+		mv "$lock_tmp" "$PACKAGE_LOCK"
+		echo "updated package lock: $PACKAGE_LOCK"
+		echo "installed locked kernel deb: ${L4T_KERNEL_DIR}/${kernel_filename}"
+		echo "installed locked dtbs deb:   ${L4T_KERNEL_DIR}/${dtbs_filename}"
+	fi
 else
 	echo "package lock update disabled; Linux_for_Tegra/kernel/ left unchanged"
 fi

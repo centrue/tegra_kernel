@@ -9,8 +9,21 @@ WORKSPACE_ROOT="$(cd "$KERNEL_ROOT/.." && pwd)"
 DT_DIR="$KERNEL_ROOT/hardware/nvidia/platform/t210/porg/kernel-dts"
 SOC_INCLUDE="$KERNEL_ROOT/hardware/nvidia/soc/tegra/kernel-include"
 OVERLAY="$DT_DIR/tegra210-p3448-common-imx708.dts"
-BASE_DTB="$WORKSPACE_ROOT/Linux_for_Tegra/kernel/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
-CROSS_GCC="$WORKSPACE_ROOT/gcc/bin/aarch64-linux-gnu-gcc"
+if [[ -f "$KERNEL_ROOT/bsp/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb" ]]; then
+	BASE_DTB="$KERNEL_ROOT/bsp/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
+else
+	BASE_DTB="$WORKSPACE_ROOT/Linux_for_Tegra/kernel/dtb/tegra210-p3448-0000-p3449-0000-a02.dtb"
+fi
+
+if [[ -n "${CROSS_COMPILE_AARCH64_PATH:-}" && -x "${CROSS_COMPILE_AARCH64_PATH}/bin/aarch64-linux-gnu-gcc" ]]; then
+	CROSS_GCC="${CROSS_COMPILE_AARCH64_PATH}/bin/aarch64-linux-gnu-gcc"
+elif [[ -x "$KERNEL_ROOT/toolchain/bin/aarch64-linux-gnu-gcc" ]]; then
+	CROSS_GCC="$KERNEL_ROOT/toolchain/bin/aarch64-linux-gnu-gcc"
+elif [[ -x "$KERNEL_ROOT/gcc/bin/aarch64-linux-gnu-gcc" ]]; then
+	CROSS_GCC="$KERNEL_ROOT/gcc/bin/aarch64-linux-gnu-gcc"
+else
+	CROSS_GCC="$WORKSPACE_ROOT/gcc/bin/aarch64-linux-gnu-gcc"
+fi
 
 for command in dtc fdtoverlay fdtget mktemp; do
 	command -v "$command" >/dev/null || {

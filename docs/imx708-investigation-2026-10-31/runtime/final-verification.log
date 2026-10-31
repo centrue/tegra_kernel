@@ -1,0 +1,36 @@
+Driver Info:
+	Driver name      : tegra-video
+	Card type        : vi-output, imx708 6-001a
+	Bus info         : platform:54080000.vi:0
+	Driver version   : 4.9.255
+	Capabilities     : 0x84200001
+		Video Capture
+		Streaming
+		Extended Pix Format
+		Device Capabilities
+	Device Caps      : 0x04200001
+		Video Capture
+		Streaming
+		Extended Pix Format
+Media Driver Info:
+	Driver name      : vi
+	Model            : NVIDIA Tegra Video Input Device
+	Serial           : 
+	Bus info         : 
+	Media version    : 0.1.0
+	Hardware revision: 0x00000003 (3)
+	Driver version   : 0.0.0
+Interface Info:
+	ID               : 0x03000008
+	Type             : V4L Video
+Entity Info:
+	ID               : 0x00000006 (6)
+	Name             : vi-output, imx708 6-001a
+	Function         : V4L2 I/O
+	Pad 0x01000007   : Sink
+	  Link 0x0200000c: from remote pad 0x1000003 of entity 'nvcsi--1' (Unknown sub-device (0002000a)): Data, Enabled
+c56e86000d3e0dca96c042f2e70004b265417db9282f05f8c1e8b332cd536754  /boot/Image
+[    5.278146] imx708 6-001a: chip ID at 0x0016: 0x0708
+[    5.283696] imx708 6-001a: board_setup: 0
+[    5.287826] imx708 6-001a: v4l2subdev_register: 0
+[    5.292541] imx708 6-001a: detected IMX708 sensor

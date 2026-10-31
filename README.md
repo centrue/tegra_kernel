@@ -62,13 +62,15 @@ pin-function selection.
 
 ## Build
 
-Install the host prerequisites used by the script, including `ccache`, the
-Linaro GCC 7.3.1 toolchain in `../gcc`, `dtc`, `fdtoverlay`, and `depmod`.
+Install the host prerequisites used by the script, including `ccache`,
+`dtc`, `fdtoverlay`, `depmod`, and `dpkg-deb`.
+The build is now self-contained: it automatically detects the local `toolchain/`
+and `bsp/` templates in this repository without requiring parent directories.
 The persistent ccache location is `/home/liaic/ccache/jetson-kernel` and can
 be overridden with `--ccache-dir` or `JETSON_CCACHE_DIR`.
 
 ```bash
-cd /mnt/raid0/workspace/Jetpack/tegra_kernel
+cd /mnt/software/workspace/tegra_kernel
 ./build-ov5647.sh --driver-mode builtin --jobs "$(nproc)"
 ```
 

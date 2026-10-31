@@ -1,0 +1,4 @@
+- **System Reboots & Camera Testing:** Feel free to reboot the remote Jetson Nano at will—do not worry about breaking the system—and actively test the camera.
+- **Kernel Compilation & Deployment:** If switching to the new kernel still does not work, modify the source, recompile (ensure `ccache` acceleration is enabled), and redeploy the `.deb` kernel package.
+- **Debugging & Diagnostics:** When issues arise, add comprehensive debug and test logging to background outputs so you can pinpoint the root cause.
+- **Git Workflow:** Promptly create a Git commit after each modification. Commit directly without asking for confirmation, and avoid creating new worktrees unnecessarily.

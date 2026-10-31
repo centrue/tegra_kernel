@@ -1,0 +1,31 @@
+		VIDIOC_REQBUFS returned 0 (Success)
+		VIDIOC_QUERYBUF returned 0 (Success)
+		VIDIOC_QUERYBUF returned 0 (Success)
+		VIDIOC_QUERYBUF returned 0 (Success)
+		VIDIOC_QUERYBUF returned 0 (Success)
+		VIDIOC_QBUF returned 0 (Success)
+		VIDIOC_QBUF returned 0 (Success)
+		VIDIOC_QBUF returned 0 (Success)
+		VIDIOC_QBUF returned 0 (Success)
+		VIDIOC_STREAMON returned 0 (Success)
+cap dqbuf: 0 seq:      0 bytesused: 5971968 ts: 39.200800 (ts-monotonic, ts-src-eof)
+cap dqbuf: 1 seq:      1 bytesused: 5971968 ts: 39.218617 delta: 17.817 ms (ts-monotonic, ts-src-eof)
+cap dqbuf: 2 seq:      2 bytesused: 5971968 ts: 39.236462 delta: 17.845 ms (ts-monotonic, ts-src-eof)
+cap dqbuf: 3 seq:      3 bytesused: 5971968 ts: 39.254335 delta: 17.873 ms (ts-monotonic, ts-src-eof)
+cap dqbuf: 0 seq:      4 bytesused: 5971968 ts: 39.272182 delta: 17.847 ms fps: 56.04 (ts-monotonic, ts-src-eof)
+
+VIDIOC_QUERYCAP: ok
+VIDIOC_S_EXT_CTRLS: ok
+VIDIOC_G_FMT: ok
+VIDIOC_S_FMT: ok
+Format Video Capture:
+	Width/Height      : 2304/1296
+	Pixel Format      : 'RG10' (10-bit Bayer RGRG/GBGB)
+	Field             : None
+	Bytes per Line    : 4608
+	Size Image        : 5971968
+	Colorspace        : sRGB
+	Transfer Function : Default (maps to sRGB)
+	YCbCr/HSV Encoding: Default (maps to ITU-R 601)
+	Quantization      : Default (maps to Full Range)
+	Flags             : 

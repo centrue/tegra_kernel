@@ -26,6 +26,15 @@ function check_vars {
 # Function to check build environment
 function check_env_common {
 	if [ "${IS_CROSS_COMPILATION}" -eq 1 ]; then
+		if [ -z "${CROSS_COMPILE_AARCH64_PATH}" ]; then
+			if [ -d "${SCRIPT_DIR}/toolchain" ]; then
+				CROSS_COMPILE_AARCH64_PATH="${SCRIPT_DIR}/toolchain"
+			elif [ -d "${SCRIPT_DIR}/gcc" ]; then
+				CROSS_COMPILE_AARCH64_PATH="${SCRIPT_DIR}/gcc"
+			elif [ -d "${SCRIPT_DIR}/../gcc" ]; then
+				CROSS_COMPILE_AARCH64_PATH="${SCRIPT_DIR}/../gcc"
+			fi
+		fi
 		check_vars "CROSS_COMPILE_AARCH64_PATH"
 		CROSS_COMPILE_AARCH64="${CROSS_COMPILE_AARCH64_PATH}/bin/aarch64-linux-gnu-"
 		if [ ! -f "${CROSS_COMPILE_AARCH64}gcc" ]; then
