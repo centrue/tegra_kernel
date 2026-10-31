@@ -144,6 +144,25 @@ class ISPToolsTests(unittest.TestCase):
         self.assertGreater(tinted['colour_delta_e76_mean'], 1)
         self.assertGreater(tinted['gray_chroma_mean'], 1)
 
+    def test_calibration_rejects_one_clipped_green_before_averaging(self):
+        camera = isp.REFERENCE_LINEAR * [.5,1,.75]*600
+        rgb = np.repeat(np.repeat(camera.reshape(4,6,3),16,axis=0),16,axis=1)
+        mosaic=np.empty((128,192),dtype='<u2')
+        mosaic[::2,::2]=np.rint(rgb[...,0]+64)
+        mosaic[::2,1::2]=mosaic[1::2,::2]=np.rint(rgb[...,1]+64)
+        mosaic[1::2,1::2]=np.rint(rgb[...,2]+64)
+        mosaic[16,17]=1023
+        self.path.write_bytes(mosaic.tobytes())
+        output=Path(self.tmp.name)/'must-not-exist.json'
+        cmd=[sys.executable,str(ROOT/'tools/imx708/calibrate.py'),'fit',
+             '--raw',str(self.path),'--size','192x128','--corners','16,16;176,16;16,112;176,112',
+             '--reference-kind','display','--half','4','--min-signal','0','--cct','6500',
+             '--illuminant','synthetic test','--out',str(output)]
+        result=subprocess.run(cmd,capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('clipped',result.stderr)
+        self.assertFalse(output.exists())
+
     def test_calibration_cli_synthetic_chart_and_missing_chart(self):
         # Chart RGB is linear with a known camera white point and 1.5x exposure.
         camera = isp.REFERENCE_LINEAR * [.5, 1, .75] * 600
