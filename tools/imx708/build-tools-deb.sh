@@ -5,7 +5,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 output=${1:-"$root/out/ov5647-builtin/deb"}
 mkdir -p "$output"
 output=$(realpath "$output")
-version="0.2.0+g$(git -C "$root" rev-parse --short HEAD)"
+version="0.3.0+g$(git -C "$root" rev-parse --short HEAD)"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/DEBIAN" "$stage/opt/imx708-tools" "$stage/usr/share/doc/imx708-camera-tools"
@@ -28,11 +28,12 @@ Package: imx708-camera-tools
 Version: $version
 Architecture: all
 Maintainer: Jetson camera workspace
-Depends: python3, v4l-utils, gstreamer1.0-tools
+Depends: python3, python3-gi, python3-gst-1.0, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, v4l-utils, gstreamer1.0-tools, gstreamer1.0-x
 Section: video
 Priority: optional
-Description: IMX708 manual focus, RAW diagnostics and measured ISP tools
- Capture programs use the Python standard library. Fit/score are workstation
+Description: IMX708 continuous autofocus, RAW diagnostics and measured ISP tools
+ Live preview uses Python GStreamer bindings; RAW tools use the standard library.
+ Fit/score are workstation
  tools requiring NumPy/Pillow. No ISP override is installed automatically.
 EOF
 git -C "$root" rev-parse HEAD > "$stage/opt/imx708-tools/source-revision.txt"
