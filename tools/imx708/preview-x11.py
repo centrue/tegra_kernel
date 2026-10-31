@@ -20,6 +20,7 @@ import time
 
 from af_runtime import CameraLocks, Mailbox, NanoLens, Worker, i420_bytes, luma_bytes
 from live_controls import Settings
+from camera_modes import SENSOR_MODES
 
 
 def shutdown_camera(worker, restore_locks, stop_pipeline):
@@ -68,6 +69,7 @@ def control_command(worker, command, settings=None):
 
 
 def build_pipeline(args, display):
+    mode=SENSOR_MODES[getattr(args,'sensor_mode',1)]
     controls = []
     if args.exposure_ns is not None:
         controls.append('exposuretimerange="%d %d"' % (args.exposure_ns, args.exposure_ns))
@@ -78,8 +80,8 @@ def build_pipeline(args, display):
     sink = ('fakesink sync=false' if args.headless else
             'videoconvert ! ximagesink name=imx708_preview display='+json.dumps(display)+
             ' sync=false force-aspect-ratio=true')
-    return ('nvarguscamerasrc name=camera sensor-id=0 sensor-mode=1 '+ ' '.join(controls)+
-            ' ! video/x-raw(memory:NVMM),width=2304,height=1296,format=NV12,framerate=%d/1'%args.fps+
+    return ('nvarguscamerasrc name=camera sensor-id=0 sensor-mode=%d '%mode['index']+ ' '.join(controls)+
+            ' ! video/x-raw(memory:NVMM),width=%d,height=%d,format=NV12,framerate=%d/1'%(mode['width'],mode['height'],min(args.fps,mode['max_fps']))+
             ' ! nvvidconv ! video/x-raw,format=I420,width=%d,height=%d,colorimetry=bt709'%(args.width,args.height)+
             ' ! videoconvert ! video/x-raw,format=RGBA'
             ' ! frei0r-filter-coloradj-rgb name=rgb keep-luma=false'
@@ -96,6 +98,7 @@ def main():
     ap.add_argument('--width', type=int, default=960)
     ap.add_argument('--height', type=int, default=540)
     ap.add_argument('--fps', type=int, default=15)
+    ap.add_argument('--sensor-mode',type=int,choices=(0,1,2),default=1)
     ap.add_argument('--exposure-ns', type=int)
     ap.add_argument('--gain', type=float)
     ap.add_argument('--isp-digital-gain', type=float)
@@ -108,6 +111,7 @@ def main():
     ap.add_argument('--socket', default='/tmp/imx708-preview.sock')
     ap.add_argument('--output', type=Path, default=Path.home()/'imx708-deploy/x11-preview')
     args = ap.parse_args()
+    args.fps=min(args.fps,SENSOR_MODES[args.sensor_mode]['max_fps'])
     display = os.environ.get('DISPLAY', '')
     if not display and not args.headless:
         ap.error('DISPLAY is empty; connect using ssh -Y or use --headless')
@@ -241,7 +245,8 @@ def main():
                      exposure_ms=(args.exposure_ns or 10000000)/1e6,
                      gain=args.gain or 2,isp_gain=args.isp_digital_gain or 1)
         settings=Settings(camera,pipeline.get_by_name('rgb'),pipeline.get_by_name('balance'),
-                          pipeline.get_by_name('tone'),worker,args.output,args.fps,initial,emit)
+                          pipeline.get_by_name('tone'),worker,args.output,args.fps,initial,emit,
+                          mode_index=args.sensor_mode,preview_size=(args.width,args.height))
         settings.apply({})
         worker.command('mode',args.autofocus)
         print('READY: IMX708 Nano - X11; AF=%s; control=%s'%(args.autofocus,args.socket),flush=True)

@@ -6,10 +6,12 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import sys
 from unittest import mock
 
 
 PATH = Path(__file__).parents[1] / 'tools/imx708/camera-tuner.py'
+sys.path.insert(0,str(PATH.parent))
 spec = importlib.util.spec_from_file_location('imx708_tuner', PATH)
 tuner = importlib.util.module_from_spec(spec) if PATH.exists() else None
 if tuner is not None:

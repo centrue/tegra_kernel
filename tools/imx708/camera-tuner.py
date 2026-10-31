@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import threading
+from camera_modes import RESOLUTIONS
 
 
 DEFAULT_OUTPUT = '/home/jetson/imx708-deploy/manual-tuning'
@@ -155,10 +156,11 @@ class AsyncClient:
         return future
 
 
-def child_command(window_id, output, socket_path, focus=688):
+def child_command(window_id, output, socket_path, focus=688,resolution='2304x1296'):
     return [sys.executable, '-u', str(Path(__file__).resolve().with_name('preview-x11.py')),
             '--window-id', str(window_id), '--autofocus', 'off', '--focus', str(focus),
             '--output', str(output), '--socket', str(socket_path),
+            '--sensor-mode',str(RESOLUTIONS[resolution]['index']),
             '--exposure-ns', '10000000', '--gain', '2', '--isp-digital-gain', '1']
 
 
@@ -182,8 +184,9 @@ def stop_child(process, path, ready=False):
 
 
 class PreviewProcess:
-    def __init__(self, output, socket_path, focus):
+    def __init__(self, output, socket_path, focus,resolution='2304x1296'):
         self.output, self.socket_path, self.focus = output, socket_path, focus
+        self.resolution=resolution
         self.lock, self.process = threading.Lock(), None
         self.ready = self.closing = False
 
@@ -194,7 +197,7 @@ class PreviewProcess:
             if os.path.lexists(self.socket_path):
                 raise RuntimeError('控制套接字已存在：%s；请先关闭原有预览，本程序不会停止它。' % self.socket_path)
             self.process = subprocess.Popen(
-                child_command(window_id, self.output, self.socket_path, self.focus),
+                child_command(window_id, self.output, self.socket_path, self.focus,self.resolution),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
                 encoding='utf-8', errors='replace', bufsize=1, env=dict(os.environ))
             return self.process
@@ -240,6 +243,17 @@ def preset_commands(path):
     return commands+['settings get']
 
 
+def restart_preset(output,state,resolution):
+    keys=set(CONTROLS)-{'focus'}|{'auto_exposure','auto_gain','wbmode','awblock'}
+    payload=dict(version=1,settings={key:state[key] for key in keys if key in state},
+                 focus=state['focus'],roi=state.get('roi',[.25,.25,.5,.5]),resolution=resolution)
+    output=Path(output);output.mkdir(parents=True,exist_ok=True)
+    path=output/'resolution-session.json'
+    temporary=path.with_suffix('.json.tmp');temporary.write_text(json.dumps(payload,indent=2)+'\n')
+    os.replace(temporary,path)
+    return path
+
+
 class TunerWindow:
     def __init__(self, args, Gtk, Gdk, GLib):
         self.args, self.Gtk, self.GLib = args, Gtk, GLib
@@ -247,7 +261,7 @@ class TunerWindow:
         self.readback_timer=None
         self.adjustments, self.widgets, self.values = {}, {}, {}
         self.revisions, self.dirty = {}, set()
-        self.backend = PreviewProcess(args.output, args.socket, args.focus)
+        self.backend = PreviewProcess(args.output, args.socket, args.focus,getattr(args,'resolution','2304x1296'))
         self.client = AsyncClient(args.socket, GLib.idle_add)
         self.debounce = Debouncer(GLib.timeout_add, GLib.source_remove, self._send_changes)
         self.window = Gtk.Window(title='IMX708 手动调节 · 0.4')
@@ -274,6 +288,14 @@ class TunerWindow:
         self.scroll.add(self.panel)
         row.pack_start(self.scroll, False, False, 0)
         self.scroll.set_sensitive(False)
+        formats=self._section('传感器分辨率')
+        self.resolution_combo=Gtk.ComboBoxText()
+        for resolution,mode in RESOLUTIONS.items():
+            self.resolution_combo.append(resolution,'%s · 最高%d fps'%(resolution,mode['max_fps']))
+        self.resolution_combo.set_active_id(getattr(args,'resolution','2304x1296'))
+        self.resolution_combo.connect('changed',self._resolution_changed)
+        formats.pack_start(self.resolution_combo,False,False,0)
+        formats.pack_start(self._label('预览与截图：960×540。切换会短暂重开窗口，保留当前参数。'),False,False,0)
         exposure = self._section('曝光')
         self._toggle(exposure, 'auto_exposure', '自动曝光')
         for key in ('exposure_ms', 'gain', 'isp_gain', 'exposure_compensation'):
@@ -462,6 +484,31 @@ class TunerWindow:
             self.debounce.flush()
             self._submit(command)
 
+    def _resolution_changed(self,combo):
+        if self.updating or not self.ready or self.closing:return
+        resolution=combo.get_active_id()
+        if resolution==self.args.resolution:return
+        self.debounce.flush()
+        self.scroll.set_sensitive(False)
+        self.status.set_text('正在保存参数并切换分辨率…')
+        def saved(state,error):
+            if error is not None:
+                self.scroll.set_sensitive(True);self.status.set_text('切换失败：'+str(error));return
+            try:path=restart_preset(self.args.output,state,resolution)
+            except (OSError,KeyError,ValueError) as failure:
+                self.scroll.set_sensitive(True);self.status.set_text(str(failure));return
+            self.closing=True;self.debounce.discard()
+            if self.readback_timer is not None:
+                self.GLib.source_remove(self.readback_timer);self.readback_timer=None
+            def stopped(result,error):
+                if error is not None:
+                    self.status.set_text('关闭旧视频失败：'+str(error));return
+                command=[sys.executable,str(Path(__file__).resolve()),'--output',str(self.args.output),
+                    '--socket',self.args.socket,'--resolution',resolution,'--preset',str(path),'--focus',str(state['focus'])]
+                os.execv(sys.executable,command)
+            self.client.close(stopped,self.backend.stop)
+        self.client.submit('settings get',saved)
+
     def _click(self, widget, event):
         if event.button != 1 or not self.ready or self.closing or not self.scroll.get_sensitive():
             return False
@@ -562,7 +609,14 @@ def main(argv=None):
     parser.add_argument('--socket', default=DEFAULT_SOCKET)
     parser.add_argument('--focus', type=int, default=688, help='initial manual focus DAC (0..1023)')
     parser.add_argument('--preset',type=Path,help='restore a saved JSON preset at startup')
+    parser.add_argument('--resolution',choices=tuple(RESOLUTIONS),default=None)
     args = parser.parse_args(argv)
+    if args.resolution is None:
+        args.resolution='2304x1296'
+        if args.preset:
+            try:args.resolution=json.loads(args.preset.read_text()).get('resolution',args.resolution)
+            except (OSError,ValueError) as error:parser.error(str(error))
+        if args.resolution not in RESOLUTIONS:parser.error('unsupported preset resolution')
     if not 0 <= args.focus <= 1023:
         parser.error('focus must be 0..1023')
     import gi

@@ -45,3 +45,13 @@ Hardware progress: native5ms/10ms requests read back372/748 coarse lines;
 gain2 reads512. First newCDAF run locked600 in4.47s. Subsequent independent
 dense scan saw large motion/brightness changes, so it is not a valid90% quality
 comparison. Stable near/far and continuous AF still require scene testing.
+
+Resolution selector: running V4L2 enumeration confirms4608x2592@14,
+2304x1296@56 and1536x864@120. These are actual sensor modes; the displayed
+preview and PNG snapshot remain960x540, with preview limited to15fps (14fps
+for full resolution). A mode change flushes pending edits, snapshots all live
+settings/focus/ROI into resolution-session.json (leaving the saved preset
+untouched), closes the owned camera cleanly, then reopens the GUI and stream
+in the requested mode and restores parameters. Native mode and preview size
+are recorded separately in metadata. Sensor telemetry reads the selected DT
+mode's pixel clock. The GUI also accepts --resolution and --preset at startup.
