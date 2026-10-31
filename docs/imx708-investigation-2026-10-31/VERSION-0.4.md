@@ -67,3 +67,9 @@ Evidence:tmp/colour-focus/tuner-v04/resolution-results.json and remote
 that backup preserves exposure17.51584ms, gain1.125, WBoff, saturation0.6,
 RGB(.46535,.49010,.47525), focus688 and the user's clicked ROI. Saved user
 settings.json was not overwritten during restart. ISP SHA remains unchanged.
+
+Live GUI resolution switch also exercised: the user selected4608x2592;
+resolution-session.json retained the previous exposure17.51584ms, gain1.125,
+RGB, focus688 and ROI before exec/reopen. The reopened stream reports sensor
+mode0; subsequent user adjustment to40.09455ms reads back40.071ms. User is
+actively tuning, so do not reset to the earlier backup or stop the live GUI.
