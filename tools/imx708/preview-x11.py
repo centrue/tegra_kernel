@@ -25,6 +25,9 @@ def main():
     ap.add_argument('--width',type=int,default=960)
     ap.add_argument('--height',type=int,default=540)
     ap.add_argument('--fps',type=int,default=15)
+    ap.add_argument('--exposure-ns',type=int,help='fixed sensor exposure; omit for AE')
+    ap.add_argument('--gain',type=float,help='fixed sensor analog gain; omit for AE')
+    ap.add_argument('--isp-digital-gain',type=float,help='fixed ISP gain for controlled comparisons')
     ap.add_argument('--socket',default='/tmp/imx708-preview.sock')
     ap.add_argument('--output',type=Path,default=Path.home()/'imx708-deploy/x11-preview')
     args=ap.parse_args()
@@ -32,6 +35,8 @@ def main():
         ap.error('DISPLAY is empty; connect using ssh -Y')
     if not 0<=args.focus<=1023 or min(args.width,args.height,args.fps)<1:
         ap.error('invalid focus, size or fps')
+    if any(v is not None and v<=0 for v in (args.exposure_ns,args.gain,args.isp_digital_gain)):
+        ap.error('exposure and gains must be positive')
     path=Path(args.socket)
     if path.exists():
         ap.error('control socket already exists; stop the previous preview first')
@@ -49,7 +54,14 @@ def main():
         server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
         try:
             server.bind(args.socket);os.chmod(args.socket,0o600);server.listen(2)
-            gst=['gst-launch-1.0','-e','nvarguscamerasrc','sensor-id=0','sensor-mode=1',
+            controls=[]
+            if args.exposure_ns is not None:
+                controls.append('exposuretimerange=%d %d'%(args.exposure_ns,args.exposure_ns))
+            if args.gain is not None:
+                controls.append('gainrange=%g %g'%(args.gain,args.gain))
+            if args.isp_digital_gain is not None:
+                controls.append('ispdigitalgainrange=%g %g'%(args.isp_digital_gain,args.isp_digital_gain))
+            gst=['gst-launch-1.0','-e','nvarguscamerasrc','sensor-id=0','sensor-mode=1',*controls,
                  '!','video/x-raw(memory:NVMM),width=2304,height=1296,format=NV12,framerate=%d/1'%args.fps,
                  '!','nvvidconv','!',
                  'video/x-raw,format=I420,width=%d,height=%d,colorimetry=bt709'%(args.width,args.height),

@@ -1,0 +1,31 @@
+# DISPLAY EXPERIMENT ONLY: measured phone-screen white balance, not general calibration.
+# RAW measurement SHA256: 58c18cfe85a08113bdeb8630d068b1c8b6dab6227326ea8967f599a3cd64b343
+# Identity CCM deliberately avoids claiming an unmeasured colour matrix.
+awb.v4.FusionLights[0] = {396,900,900,540};
+awb.v4.FusionLights[1] = {396,900,900,540};
+awb.v4.FusionLights[2] = {396,900,900,540};
+awb.v4.FusionLights[3] = {396,900,900,540};
+awb.v4.FusionLights[4] = {396,900,900,540};
+awb.v4.FusionLights[5] = {396,900,900,540};
+awb.v4.FusionLights[6] = {396,900,900,540};
+awb.v4.FusionLights[7] = {396,900,900,540};
+awb.v4.FusionInitLight = 4;
+awb.LowU = 0.05;
+awb.HighU = 4.0;
+awb.GrayLineThickness = 1.0;
+awb.NumGrayLineSoftClampPoints = 0;
+awb.v4.LowU = 0.05;
+awb.v4.HighU = 4.0;
+awb.v4.GrayLineThickness = 1.0;
+awb.v4.NumGrayLineSoftClampPoints = 0;
+awb.v4.FusionUseLux = FALSE;
+colorCorrection.numColorCorrectionMatrices = 1;
+colorCorrection.set[0].cct = 6500;
+colorCorrection.set[0].ccMatrix[0] = { 1.0, 0.0, 0.0, 0.0 };
+colorCorrection.set[0].ccMatrix[1] = { 0.0, 1.0, 0.0, 0.0 };
+colorCorrection.set[0].ccMatrix[2] = { 0.0, 0.0, 1.0, 0.0 };
+colorCorrection.set[0].ccMatrix[3] = { 0.0, 0.0, 0.0, 1.0 };
+opticalBlack.float.manualBiasR = 0.062561095;
+opticalBlack.float.manualBiasGR = 0.062561095;
+opticalBlack.float.manualBiasGB = 0.062561095;
+opticalBlack.float.manualBiasB = 0.062561095;
