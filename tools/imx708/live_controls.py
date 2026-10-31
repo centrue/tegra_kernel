@@ -15,6 +15,21 @@ RANGES=dict(exposure_ms=(.5,66.666666),gain=(1.125,16),isp_gain=(1,8),
             blue=(0,1),brightness=(-1,1),contrast=(0,2),gamma=(.1,3))
 
 
+def hardware_state():
+    """Read sensor registers rather than presenting requested exposure as actual."""
+    try:
+        from camera_io import read_register
+        mode=Path('/sys/bus/i2c/devices/6-001a/of_node/mode1')
+        clock=int((mode/'pix_clk_hz').read_bytes().strip(b'\0'))
+        fine,coarse,gain,frame,line=[read_register('/dev/i2c-6',0x1a,r,2,2)
+                                   for r in (0x0200,0x0202,0x0204,0x0340,0x0342)]
+        return dict(exposure_ms=round((coarse*line+fine)/clock*1000,3),
+                    gain=round(1024/(1024-gain),3),frame_ms=round(frame*line/clock*1000,3),
+                    coarse_lines=coarse,frame_lines=frame)
+    except (OSError,ValueError,ZeroDivisionError) as error:
+        return dict(error=str(error))
+
+
 class Settings:
     def __init__(self,camera,rgb,balance,gamma,worker,output,fps=15,initial=None,emit=None):
         self.camera,self.rgb,self.balance,self.gamma=camera,rgb,balance,gamma
@@ -45,6 +60,7 @@ class Settings:
         return dict(self.values,focus=status['position'],af_mode=status['mode'],af_state=status['state'],
                     roi=list(getattr(self.worker,'roi',(.25,.25,.5,.5))),output=str(self.output),
                     preset_path=str(self.preset),
+                    hardware=hardware_state(),
                     isp_sha256=hashlib.sha256(isp.read_bytes()).hexdigest() if isp.exists() else None)
 
     def apply(self,changes):

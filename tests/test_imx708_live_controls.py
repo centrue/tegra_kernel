@@ -2,8 +2,11 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import sys
+from unittest import mock
 
 PATH=Path(__file__).parents[1]/'tools/imx708/live_controls.py'
+sys.path.insert(0,str(PATH.parent))
 spec=importlib.util.spec_from_file_location('live_controls',PATH)
 live=importlib.util.module_from_spec(spec) if PATH.exists() else None
 if live is not None:spec.loader.exec_module(live)
@@ -68,6 +71,14 @@ class LiveControlsTests(unittest.TestCase):
             state=controls.load()
             self.assertEqual(state['green'],.45);self.assertEqual(state['focus'],640)
             self.assertTrue((Path(path)/'settings.json').exists())
+
+    def test_hardware_readback_is_separate_from_requested_settings(self):
+        with mock.patch('camera_io.read_register',side_effect=[2412,748,512,4989,7824]), \
+             mock.patch.object(Path,'read_bytes',return_value=b'585600000\0'):
+            state=live.hardware_state()
+        self.assertAlmostEqual(state['exposure_ms'],9.998,places=3)
+        self.assertEqual(state['gain'],2.)
+        self.assertGreater(state['frame_ms'],66)
 
 
 if __name__=='__main__':unittest.main()
