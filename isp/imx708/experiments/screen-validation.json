@@ -1,0 +1,193 @@
+{
+  "generic": {
+    "0": {
+      "center": [
+        1710,
+        775
+      ],
+      "rgb": [
+        94.0,
+        74.0,
+        84.0
+      ],
+      "channel_spread": 20.0
+    },
+    "16": {
+      "center": [
+        1510,
+        760
+      ],
+      "rgb": [
+        96.0,
+        76.0,
+        84.0
+      ],
+      "channel_spread": 20.0
+    },
+    "32": {
+      "center": [
+        1300,
+        748
+      ],
+      "rgb": [
+        99.0,
+        82.0,
+        89.0
+      ],
+      "channel_spread": 17.0
+    },
+    "64": {
+      "center": [
+        1100,
+        735
+      ],
+      "rgb": [
+        104.0,
+        90.0,
+        94.0
+      ],
+      "channel_spread": 14.0
+    },
+    "96": {
+      "center": [
+        895,
+        715
+      ],
+      "rgb": [
+        108.0,
+        98.0,
+        101.0
+      ],
+      "channel_spread": 10.0
+    },
+    "image_sha256": "24c5ecc68c2a2e28e5c4e6c5afb6a54157cfc7274734df4652a9eeb03ade399b",
+    "capture_metadata": {
+      "command": [
+        "gst-launch-1.0",
+        "-e",
+        "-v",
+        "nvarguscamerasrc",
+        "sensor-id=0",
+        "sensor-mode=1",
+        "exposuretimerange=10000000 10000000",
+        "gainrange=2 2",
+        "ispdigitalgainrange=1 1",
+        "!",
+        "video/x-raw(memory:NVMM),width=2304,height=1296,format=NV12,framerate=30/1",
+        "!",
+        "nvvidconv",
+        "!",
+        "video/x-raw,format=I420,colorimetry=bt709",
+        "!",
+        "filesink",
+        "location=/tmp/imx708-isp-t9bqdbuh/frames"
+      ],
+      "lens": "/dev/v4l-subdev0",
+      "requested_dac": 688,
+      "actual_dac": 688,
+      "width": 2304,
+      "height": 1296,
+      "format": "I420",
+      "colorimetry": "bt709",
+      "exposure_ns": 10000000,
+      "gain": 2.0,
+      "settling_frames": 60
+    }
+  },
+  "wb-black": {
+    "0": {
+      "center": [
+        2070,
+        730
+      ],
+      "rgb": [
+        9.0,
+        9.0,
+        9.0
+      ],
+      "channel_spread": 0.0
+    },
+    "16": {
+      "center": [
+        1880,
+        725
+      ],
+      "rgb": [
+        17.0,
+        17.0,
+        17.0
+      ],
+      "channel_spread": 0.0
+    },
+    "32": {
+      "center": [
+        1670,
+        723
+      ],
+      "rgb": [
+        29.0,
+        29.0,
+        26.0
+      ],
+      "channel_spread": 3.0
+    },
+    "64": {
+      "center": [
+        1450,
+        722
+      ],
+      "rgb": [
+        50.0,
+        48.0,
+        45.0
+      ],
+      "channel_spread": 5.0
+    },
+    "96": {
+      "center": [
+        1240,
+        720
+      ],
+      "rgb": [
+        71.0,
+        71.0,
+        68.0
+      ],
+      "channel_spread": 3.0
+    },
+    "image_sha256": "2f1099ca92da3433f56bee84e69028f53c46e0d9b0125fcf33e4962b8b491f50",
+    "capture_metadata": {
+      "command": [
+        "gst-launch-1.0",
+        "-e",
+        "-v",
+        "nvarguscamerasrc",
+        "sensor-id=0",
+        "sensor-mode=1",
+        "exposuretimerange=10000000 10000000",
+        "gainrange=2 2",
+        "ispdigitalgainrange=1 1",
+        "!",
+        "video/x-raw(memory:NVMM),width=2304,height=1296,format=NV12,framerate=30/1",
+        "!",
+        "nvvidconv",
+        "!",
+        "video/x-raw,format=I420,colorimetry=bt709",
+        "!",
+        "filesink",
+        "location=/tmp/imx708-isp-8t9nbrx_/frames"
+      ],
+      "lens": "/dev/v4l-subdev0",
+      "requested_dac": 688,
+      "actual_dac": 688,
+      "width": 2304,
+      "height": 1296,
+      "format": "I420",
+      "colorimetry": "bt709",
+      "exposure_ns": 10000000,
+      "gain": 2.0,
+      "settling_frames": 60
+    }
+  },
+  "scope": "Display-only neutral/pedestal diagnostic, not full colour accuracy; chart shifted between captures."
+}
