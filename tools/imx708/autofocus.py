@@ -35,8 +35,9 @@ def measure_luma(data, width, height, stride=None, offset=0,
             total += value
             total_square += value*value
             count += 1
-            saturated += value >= 250
-            energy += (value-data[p+2])**2+(value-data[p+2*stride])**2
+            saturated += value >= 235
+            energy += ((value-data[p+1])**2+(value-data[p+stride])**2+
+                       (value-data[p+2])**2+(value-data[p+2*stride])**2)
     mean = total/count
     variance = max(0., total_square/count-mean*mean)
     signal = max(mean-16, 4.)
@@ -46,9 +47,9 @@ def measure_luma(data, width, height, stride=None, offset=0,
                                      int(x0+(i+(a+.5)/4)*(x1-x0)/16)]
                             for b in range(4) for a in range(4))/16-mean)/signal
                       for j in range(12) for i in range(16))
-    reason = ('dark' if mean < 20 else 'saturated' if mean > 240 or clipped > .05
+    reason = ('dark' if mean < 20 else 'saturated' if mean >= 235 or clipped > .05
               else 'low texture' if variance < 9 else '')
-    return dict(score=energy/(2*count*signal**2), mean=mean,
+    return dict(score=energy/(4*count*signal**2), mean=mean,
                 variance=variance, clipped=clipped, thumbnail=thumbnail,
                 valid=not reason, reason=reason)
 
@@ -149,6 +150,7 @@ class Controller:
     def _begin(self, now, local=False):
         self.local = local
         self.records = []
+        self.scenes = {}
         self.reference_mean = None
         self.last_search = now
         self.total_deadline = now+(40 if local else 25)
@@ -176,8 +178,16 @@ class Controller:
 
     def tick(self, now):
         if self.searching and now > self.deadline:
-            return self._fail(now, 'search timeout')
+            return self._search_failed(now, 'search timeout')
         return None
+
+    def _search_failed(self, now, reason):
+        if self.local and now < self.total_deadline:
+            self.event('fallback', fallback_reason=reason)
+            self.records, self.scenes, self.reference_mean = [], {}, None
+            self.deadline = self.total_deadline
+            return self._coarse(False)
+        return self._fail(now, reason)
 
     def feed(self, measurement, now, sequence, captured_at):
         if sequence <= self.last_sequence:
@@ -242,12 +252,17 @@ class Controller:
         if self.reference_mean is None and valid:
             self.reference_mean = mean
         if self.reference_mean is not None and abs(mean-self.reference_mean) > .2*max(self.reference_mean, 4):
+            self.event('rejected', measured_score=score, mean=mean+16,
+                       reference_mean=self.reference_mean+16,
+                       invalid_reason='illumination drift across positions')
             return self._fail(now, 'illumination drift across positions')
         self.event('sample', measured_score=score, mean=mean+16, valid=valid,
                    invalid_reason=reason, sample_count=3)
         if self.state == 'VERIFY':
+            if distance(self.samples[-1]['thumbnail'], self.candidate_thumbnail) > .12:
+                return self._search_failed(now, 'scene changed before verification')
             if not valid or score < .9*self.candidate[1]:
-                return self._fail(now, reason or 'peak confirmation failed')
+                return self._search_failed(now, reason or 'peak confirmation failed')
             self.good_position, self.locked_score = self.position, score
             self.locked_thumbnail = self.samples[-1]['thumbnail']
             self.previous = self.locked_thumbnail
@@ -259,16 +274,12 @@ class Controller:
             return None
         if valid:
             self.records.append((self.position, score))
+            self.scenes[self.position] = self.samples[-1]['thumbnail']
         if self.points:
             return self._request(self.points.pop(0))
         peak = choose_peak(self.records)
         if peak is None:
-            if self.local:
-                self.records = []
-                self.reference_mean = None
-                self.deadline = self.total_deadline
-                return self._coarse(False)
-            return self._fail(now, 'no bracketed prominent peak')
+            return self._search_failed(now, 'no bracketed prominent peak')
         if self.state == 'COARSE':
             span = 16 if self.local else 32
             self.points = positions(max(self.limits[0], peak[0]-span),
@@ -276,5 +287,6 @@ class Controller:
             self.state = 'FINE'
             return self._request(self.points.pop(0))
         self.candidate = peak
+        self.candidate_thumbnail = self.scenes[peak[0]]
         self.state = 'VERIFY'
         return self._request(peak[0])

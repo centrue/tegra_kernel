@@ -134,6 +134,56 @@ class AutofocusTests(unittest.TestCase):
         self.assertFalse(engine.searching)
         self.assertIn('timeout', engine.reason)
 
+    def test_limited_range_white_is_clipped(self):
+        data = bytes(235 if x%8<4 else 80 for y in range(48) for x in range(64))
+        metric = af.measure_luma(data,64,48)
+        self.assertGreater(metric['clipped'], .4)
+        self.assertFalse(metric['valid'])
+
+    def test_gradient_sees_alternating_pixel_texture(self):
+        data = bytes(160 if x%2 else 40 for y in range(48) for x in range(64))
+        sharp = af.measure_luma(data,64,48)
+        blurred = af.measure_luma(bytes([100])*64*48,64,48)
+        self.assertGreater(sharp['score'], blurred['score'])
+
+    def test_scene_switch_at_verification_cannot_lock(self):
+        engine=af.Controller()
+        engine.set_mode('once',0.)
+        now=0.
+        for seq in range(1,500):
+            now+=1/15
+            score=.1+10/(1+((engine.position-688)/35)**2)
+            action=engine.feed(sample(score,thumb=.4 if engine.state=='VERIFY' else 0.),now,seq,now)
+            if action is not None:engine.moved(action,now,seq)
+            if engine.state in ('LOCKED','FAILED'):break
+        self.assertEqual(engine.state,'FAILED')
+        self.assertIn('scene',engine.reason)
+
+    def test_local_timeout_expands_with_original_total_budget(self):
+        engine=af.Controller()
+        engine.set_mode('continuous',0.)
+        now,seq,_=self.drive(engine)
+        engine._begin(now+4,local=True)
+        total_deadline=engine.total_deadline
+        action=engine.tick(now+17)
+        self.assertEqual(action,engine.limits[0])
+        self.assertTrue(engine.searching)
+        self.assertFalse(engine.local)
+        self.assertEqual(engine.deadline,total_deadline)
+
+    def test_local_failed_verification_expands(self):
+        engine=af.Controller()
+        engine.set_mode('continuous',0.)
+        now,seq,_=self.drive(engine)
+        engine._begin(now+4,local=True)
+        engine.state='VERIFY';engine.candidate=(688,10.)
+        engine.candidate_thumbnail=sample()['thumbnail']
+        engine.samples=[sample(.1)]*3
+        engine.reference_mean=84.
+        self.assertEqual(engine._scored(now+5),engine.limits[0])
+        self.assertFalse(engine.local)
+        self.assertTrue(engine.searching)
+
 
 if __name__ == '__main__':
     unittest.main()
