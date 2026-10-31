@@ -270,6 +270,28 @@ class TunerTests(unittest.TestCase):
         self.assertIn('2.02', text)
         self.assertIn('66.7 ms', text)
 
+    def test_readback_refresh_is_delayed_and_runs_only_once(self):
+        app=tuner.TunerWindow.__new__(tuner.TunerWindow)
+        timers=Timers();calls=[]
+        app.ready=True;app.closing=False;app.readback_timer=None
+        app.GLib=type('GLib',(),dict(timeout_add=staticmethod(timers.add),source_remove=staticmethod(timers.remove)))
+        app._submit=calls.append
+        self.assertTrue(hasattr(app,'_queue_hardware_refresh'),'settled readback refresh missing')
+        app._queue_hardware_refresh();timers.advance(499)
+        self.assertEqual(calls,[])
+        timers.advance(1);self.assertEqual(calls,['settings get'])
+        timers.advance(1000);self.assertEqual(calls,['settings get'])
+
+    def test_restore_preset_uses_regular_validated_backend_commands(self):
+        self.assertTrue(hasattr(tuner,'preset_commands'),'startup preset restore missing')
+        with tempfile.TemporaryDirectory() as path:
+            preset=Path(path)/'restore.json'
+            preset.write_text(json.dumps(dict(version=1,settings={'gain':3,'red':.45},focus=612,roi=[.1,.2,.3,.3])))
+            commands=tuner.preset_commands(preset)
+        self.assertEqual(json.loads(commands[0][len('settings set '):]),{'gain':3,'red':.45,'focus':612})
+        self.assertTrue(commands[1].startswith('roi '))
+        self.assertEqual(commands[-1],'settings get')
+
 
 if __name__ == '__main__':
     unittest.main()

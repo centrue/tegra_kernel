@@ -237,7 +237,7 @@ def main():
             return
         worker = Worker(mailbox,NanoLens(args.bus),set_locks,args.focus,limits,roi,emit,save)
         worker.start()
-        initial=dict(auto_exposure=args.exposure_ns is None and args.gain is None,
+        initial=dict(auto_exposure=args.exposure_ns is None,auto_gain=args.gain is None,
                      exposure_ms=(args.exposure_ns or 10000000)/1e6,
                      gain=args.gain or 2,isp_gain=args.isp_digital_gain or 1)
         settings=Settings(camera,pipeline.get_by_name('rgb'),pipeline.get_by_name('balance'),

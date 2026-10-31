@@ -88,5 +88,16 @@ class LiveControlsTests(unittest.TestCase):
             self.assertEqual(state['red'],.55)
             with self.assertRaises(ValueError):controls.apply({'focus':1024})
 
+    def test_independent_startup_exposure_and_gain_ranges(self):
+        with tempfile.TemporaryDirectory() as path:
+            for auto_exposure,auto_gain in ((True,False),(False,True)):
+                elements=[Element() for _ in range(4)]
+                controls=live.Settings(*elements,Worker(),path,initial=dict(
+                    auto_exposure=auto_exposure,auto_gain=auto_gain,exposure_ms=12,gain=4))
+                controls.apply({})
+                self.assertEqual(elements[0].values['gainrange'],'1.125 16' if auto_gain else '4 4')
+                self.assertEqual(elements[0].values['exposuretimerange'],
+                                 '500000 66666666' if auto_exposure else '12000000 12000000')
+
 
 if __name__=='__main__':unittest.main()

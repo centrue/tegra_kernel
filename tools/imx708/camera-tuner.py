@@ -230,10 +230,21 @@ def hardware_text(readings):
         readings.get('exposure_ms', '—'), readings.get('gain', '—'), readings.get('frame_ms', '—'))
 
 
+def preset_commands(path):
+    payload=json.loads(Path(path).read_text())
+    if payload.get('version')!=1 or not isinstance(payload.get('settings'),dict):
+        raise ValueError('unsupported preset')
+    settings=dict(payload['settings'],focus=payload['focus'])
+    commands=['settings set '+json.dumps(settings,separators=(',',':'))]
+    if 'roi' in payload:commands.append('roi '+','.join(str(v) for v in payload['roi']))
+    return commands+['settings get']
+
+
 class TunerWindow:
     def __init__(self, args, Gtk, Gdk, GLib):
         self.args, self.Gtk, self.GLib = args, Gtk, GLib
         self.ready = self.closing = self.updating = False
+        self.readback_timer=None
         self.adjustments, self.widgets, self.values = {}, {}, {}
         self.revisions, self.dirty = {}, set()
         self.backend = PreviewProcess(args.output, args.socket, args.focus)
@@ -400,7 +411,17 @@ class TunerWindow:
         elif command == 'snapshot':
             snapshot = reply.get('snapshot') or {}
             self.path_label.set_text('截图已保存：' + str(snapshot.get('png') or snapshot.get('i420') or snapshot))
+        if command.startswith('settings set ') or command in ('settings load','settings reset','restore'):
+            self._queue_hardware_refresh()
         return False
+
+    def _queue_hardware_refresh(self):
+        if self.readback_timer is not None:self.GLib.source_remove(self.readback_timer)
+        def refresh():
+            self.readback_timer=None
+            if self.ready and not self.closing:self._submit('settings get')
+            return False
+        self.readback_timer=self.GLib.timeout_add(500,refresh)
 
     def _apply(self, reply, revisions=None, submitted=None):
         values = dict(reply)
@@ -486,7 +507,17 @@ class TunerWindow:
         if kind == 'ready':
             if not self.ready:
                 self.ready = True
-                self._submit('settings get', initializing=True)
+                preset=getattr(self.args,'preset',None)
+                if preset is None:
+                    self._submit('settings get', initializing=True)
+                else:
+                    try:
+                        commands=preset_commands(preset)
+                        revisions=dict(self.revisions)
+                        self.client.submit_many(commands,lambda reply,error:
+                            self._reply(reply,error,revisions,set(),'restore',True))
+                    except (OSError,ValueError,KeyError) as error:
+                        self._backend_failed('载入启动参数失败：'+str(error))
         else:
             self._apply(record)
             if record.get('event') in ('error', 'unconfirmed'):
@@ -510,6 +541,8 @@ class TunerWindow:
         if not self.closing:
             self.closing = True
             self.debounce.discard()
+            if self.readback_timer is not None:
+                self.GLib.source_remove(self.readback_timer);self.readback_timer=None
             self.scroll.set_sensitive(False)
             self.status.set_text('正在关闭预览…')
             self.client.close(self._closed, self.backend.stop)
@@ -528,11 +561,13 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, default=Path(DEFAULT_OUTPUT))
     parser.add_argument('--socket', default=DEFAULT_SOCKET)
     parser.add_argument('--focus', type=int, default=688, help='initial manual focus DAC (0..1023)')
+    parser.add_argument('--preset',type=Path,help='restore a saved JSON preset at startup')
     args = parser.parse_args(argv)
     if not 0 <= args.focus <= 1023:
         parser.error('focus must be 0..1023')
     import gi
     gi.require_version('Gtk', '3.0')
+    gi.require_version('Gdk', '3.0')
     gi.require_version('GdkX11', '3.0')
     from gi.repository import Gdk, GdkX11, GLib, Gtk
     if not Gtk.init_check(None)[0]:

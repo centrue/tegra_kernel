@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 
-DEFAULTS=dict(auto_exposure=False,exposure_ms=10.,gain=2.,isp_gain=1.,
+DEFAULTS=dict(auto_exposure=False,auto_gain=False,exposure_ms=10.,gain=2.,isp_gain=1.,
               wbmode=1,awblock=False,exposure_compensation=0.,saturation=1.,
               red=.5,green=.5,blue=.5,brightness=0.,contrast=1.,gamma=1.)
 RANGES=dict(exposure_ms=(.5,66.666666),gain=(1.125,16),isp_gain=(1,8),
@@ -45,7 +45,7 @@ class Settings:
             raise ValueError('focus must be integer0..1023')
         values=dict(self.values,**{k:v for k,v in changes.items() if k!='focus'})
         for key,value in values.items():
-            if key in ('auto_exposure','awblock'):
+            if key in ('auto_exposure','auto_gain','awblock'):
                 if type(value) is not bool:raise ValueError(key+' must be boolean')
             elif key=='wbmode':
                 if type(value) is not int or not 0<=value<=8:raise ValueError('wbmode must be0..8')
@@ -66,13 +66,15 @@ class Settings:
                     isp_sha256=hashlib.sha256(isp.read_bytes()).hexdigest() if isp.exists() else None)
 
     def apply(self,changes):
+        if isinstance(changes,dict) and 'auto_exposure' in changes and 'auto_gain' not in changes:
+            changes=dict(changes,auto_gain=changes['auto_exposure'])
         values=self.validate(changes)
         # Do not let an AF search retain AE/AWB ownership during manual edits.
         self.worker.command('mode','off')
         exposure=round(values['exposure_ms']*1e6)
         max_exposure=min(499000000,int(1e9/self.fps))
         properties=[(self.camera,'exposuretimerange','500000 %d'%max_exposure if values['auto_exposure'] else '%d %d'%(exposure,exposure)),
-                    (self.camera,'gainrange','1.125 16' if values['auto_exposure'] else '%g %g'%(values['gain'],values['gain'])),
+                    (self.camera,'gainrange','1.125 16' if values['auto_gain'] else '%g %g'%(values['gain'],values['gain'])),
                     (self.camera,'ispdigitalgainrange','%g %g'%(values['isp_gain'],values['isp_gain'])),
                     (self.camera,'wbmode',values['wbmode']),
                     (self.camera,'awblock',values['awblock']),
