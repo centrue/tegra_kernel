@@ -39,9 +39,11 @@ class Settings:
         self.preset=self.output/'settings.json'
 
     def validate(self,changes):
-        if not isinstance(changes,dict) or set(changes)-DEFAULTS.keys():
+        if not isinstance(changes,dict) or set(changes)-(DEFAULTS.keys()|{'focus'}):
             raise ValueError('unknown or invalid settings')
-        values=dict(self.values,**changes)
+        if 'focus' in changes and (type(changes['focus']) is not int or not 0<=changes['focus']<=1023):
+            raise ValueError('focus must be integer0..1023')
+        values=dict(self.values,**{k:v for k,v in changes.items() if k!='focus'})
         for key,value in values.items():
             if key in ('auto_exposure','awblock'):
                 if type(value) is not bool:raise ValueError(key+' must be boolean')
@@ -83,6 +85,7 @@ class Settings:
         previous=[(element,key,element.get_property(key)) for element,key,_ in properties]
         try:
             for element,key,value in properties:element.set_property(key,value)
+            if 'focus' in changes:self.worker.command('focus',changes['focus'])
         except Exception as error:
             failures=[]
             for element,key,value in previous:

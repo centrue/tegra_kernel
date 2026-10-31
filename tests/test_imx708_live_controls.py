@@ -80,5 +80,13 @@ class LiveControlsTests(unittest.TestCase):
         self.assertEqual(state['gain'],2.)
         self.assertGreater(state['frame_ms'],66)
 
+    def test_gui_can_submit_focus_along_with_pending_colour_changes(self):
+        with tempfile.TemporaryDirectory() as path:
+            controls,_,_=self.make(path)
+            state=controls.apply({'focus':640,'red':.55})
+            self.assertEqual(state['focus'],640)
+            self.assertEqual(state['red'],.55)
+            with self.assertRaises(ValueError):controls.apply({'focus':1024})
+
 
 if __name__=='__main__':unittest.main()
