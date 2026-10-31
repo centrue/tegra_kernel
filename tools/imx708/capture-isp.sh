@@ -74,7 +74,7 @@ override=$settings/camera_overrides.isp
 exec 9>"$settings/.imx708-isp.lock"
 flock -n 9 || { echo 'another ISP capture owns the settings lock' >&2; exit 1; }
 changed=0; had=0; load_verified=0; journal_saved=0; override_sha=''; frame_sha=''; original_sha=''
-capture_rc=''; restore_rc=0; cursor=''; since=$(date --iso-8601=ns)
+capture_rc=''; restore_rc=0; cursor=''; since=$(date '+%Y-%m-%d %H:%M:%S')
 # Save invocation before changing positional parameters or any override state.
 printf '%q ' "${invocation[@]}" >"$out/invocation.txt"
 printf '\n' >>"$out/invocation.txt"
