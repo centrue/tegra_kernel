@@ -60,6 +60,9 @@ static int imx708_read_reg(struct camera_common_data *s_data,
 	err = regmap_read(s_data->regmap, addr, &reg_val);
 	if (!err)
 		*val = reg_val & 0xff;
+	else
+		dev_err(s_data->dev, "read register 0x%04x failed: %d\n",
+			addr, err);
 	return err;
 }
 
@@ -217,6 +220,8 @@ static int imx708_power_on(struct camera_common_data *s_data)
 	struct camera_common_pdata *pdata = s_data->pdata;
 	int err;
 
+	dev_info(s_data->dev, "power on: reset GPIO=%u\n", pw->reset_gpio);
+
 	if (pdata && pdata->power_on) {
 		err = pdata->power_on(pw);
 		if (!err)
@@ -248,6 +253,8 @@ static int imx708_power_on(struct camera_common_data *s_data)
 	/* RidgeRun's sequence budgets reset release plus sensor startup. */
 	usleep_range(300000, 300100);
 	pw->state = SWITCH_ON;
+	dev_info(s_data->dev, "power on complete: GPIO=%d\n",
+		gpio_get_value_cansleep(pw->reset_gpio));
 	return 0;
 
 disable_iovdd:
@@ -311,6 +318,7 @@ static int imx708_power_get(struct tegracam_device *tc_dev)
 	if (!gpio_is_valid(pw->reset_gpio))
 		return -EINVAL;
 	err = gpio_request(pw->reset_gpio, "imx708_reset");
+	dev_info(dev, "request reset GPIO %u: %d\n", pw->reset_gpio, err);
 	if (err)
 		return err;
 	pw->state = SWITCH_OFF;
@@ -440,15 +448,16 @@ static int imx708_board_setup(struct imx708 *priv)
 	err = imx708_power_on(s_data);
 	if (err)
 		return err;
-	err = imx708_read_reg(s_data, IMX708_MODEL_ID_ADDR_MSB, &id_msb);
+	/* Module variant at 0x0000 is not the silicon identity. */
+	err = imx708_read_reg(s_data, 0x0016, &id_msb);
 	if (err)
 		goto power_off;
-	err = imx708_read_reg(s_data, IMX708_MODEL_ID_ADDR_LSB, &id_lsb);
+	err = imx708_read_reg(s_data, 0x0017, &id_lsb);
 	if (err)
 		goto power_off;
-	if (id_msb != IMX708_MODEL_ID_VALUE_MSB ||
-		id_lsb != IMX708_MODEL_ID_VALUE_LSB) {
-		dev_err(dev, "unexpected sensor ID 0x%02x%02x (expected 0x0301)\n",
+	dev_info(dev, "chip ID at 0x0016: 0x%02x%02x\n", id_msb, id_lsb);
+	if (id_msb != 0x07 || id_lsb != 0x08) {
+		dev_err(dev, "unexpected sensor ID 0x%02x%02x (expected 0x0708)\n",
 			id_msb, id_lsb);
 		err = -ENODEV;
 		goto power_off;
@@ -490,6 +499,9 @@ static int imx708_probe(struct i2c_client *client,
 	struct imx708 *priv;
 	int err;
 
+	dev_info(dev, "probe diagnostic v1: bus=%d addr=0x%02x node=%s\n",
+		client->adapter->nr, client->addr,
+		dev->of_node ? dev->of_node->full_name : "none");
 	if (!IS_ENABLED(CONFIG_OF) || !dev->of_node)
 		return -EINVAL;
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -511,6 +523,7 @@ static int imx708_probe(struct i2c_client *client,
 	tc_dev->tcctrl_ops = &imx708_ctrl_ops;
 
 	err = tegracam_device_register(tc_dev);
+	dev_info(dev, "tegracam_device_register: %d\n", err);
 	if (err)
 		return err;
 	priv->tc_dev = tc_dev;
@@ -519,9 +532,11 @@ static int imx708_probe(struct i2c_client *client,
 	tegracam_set_privdata(tc_dev, priv);
 
 	err = imx708_board_setup(priv);
+	dev_info(dev, "board_setup: %d\n", err);
 	if (err)
 		goto unregister_device;
 	err = tegracam_v4l2subdev_register(tc_dev, true);
+	dev_info(dev, "v4l2subdev_register: %d\n", err);
 	if (err)
 		goto unregister_device;
 
