@@ -55,3 +55,15 @@ untouched), closes the owned camera cleanly, then reopens the GUI and stream
 in the requested mode and restores parameters. Native mode and preview size
 are recorded separately in metadata. Sensor telemetry reads the selected DT
 mode's pixel clock. The GUI also accepts --resolution and --preset at startup.
+
+Deployment verification:0.4.0+gffa33ab59 installed.80 Python tests pass. Fresh
+review follow-up passed27 controls/GUI/mode tests with no remaining important
+finding. All3 modes captured real Argus frames and PNGs; concurrent V4L2
+get-format confirmed native4608/2592,2304/1296 and1536/864. Hardware integration
+readback at requested10ms was9.994/9.998/9.987ms respectively, gain2 throughout.
+Evidence:tmp/colour-focus/tuner-v04/resolution-results.json and remote
+~/imx708-deploy/resolution-smoke/. Current user's values were backed up to
+~/imx708-deploy/tuner-before-resolution.json and the GUI restarted with --preset;
+that backup preserves exposure17.51584ms, gain1.125, WBoff, saturation0.6,
+RGB(.46535,.49010,.47525), focus688 and the user's clicked ROI. Saved user
+settings.json was not overwritten during restart. ISP SHA remains unchanged.
