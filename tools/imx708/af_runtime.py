@@ -8,7 +8,8 @@ import struct
 import threading
 import time
 
-from autofocus import Controller, measure_luma
+from autofocus import measure_luma
+from libcamera_af import Controller
 from camera_io import read_register
 
 
@@ -206,10 +207,17 @@ class Worker:
                             elif kind == 'snapshot':
                                 if self.current_frame is None:
                                     raise ValueError('no frame available')
-                                self.save('snapshot', self.current_frame, self.controller.status())
+                                result['snapshot']=self.save('snapshot', self.current_frame, self.controller.status())
+                            elif kind == 'roi':
+                                measure_luma(bytes([100])*960*540,960,540,roi=value)
+                                self.controller.set_mode('off',time.monotonic())
+                                self._sync_locks()
+                                self.roi=tuple(value)
                             else:
                                 raise ValueError('unknown worker command')
                             result['status'] = self.controller.status()
+                            if 'snapshot' in result:
+                                result['status']['snapshot']=result['snapshot']
                         except Exception as error:
                             self._error(error)
                             result['error'] = str(error)
@@ -225,6 +233,10 @@ class Worker:
                 self.sequence = frame['sequence']
                 self.last_frame = time.monotonic()
                 try:
+                    with self.lock:
+                        self.current_frame=frame
+                        if self.controller.mode=='off':
+                            continue
                     measurement = measure_luma(frame['data'], frame['width'], frame['height'],
                                                frame['stride'], frame['offset'], self.roi)
                     with self.lock:

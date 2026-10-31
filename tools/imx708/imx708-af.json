@@ -1,0 +1,10 @@
+{
+  "source": "raspberrypi/libcamera c682979b50695b93526adb1e66db33743484b63b src/ipa/rpi/vc4/data/imx708.json, rpi.af CDAF parameters",
+  "license": "BSD-2-Clause; Copyright Raspberry Pi Ltd",
+  "rpi.af": {
+    "ranges": {"normal": {"min": 0.0, "max": 12.0, "default": 1.0}, "macro": {"min": 3.0, "max": 15.0, "default": 4.0}},
+    "speeds": {"normal": {"step_coarse": 1.0, "step_fine": 0.25, "contrast_ratio": 0.75, "retrigger_ratio": 0.8, "retrigger_delay": 10, "step_frames": 5}},
+    "skip_frames": 5,
+    "map": [0.0, 445, 15.0, 925]
+  }
+}

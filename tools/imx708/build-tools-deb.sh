@@ -5,13 +5,14 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 output=${1:-"$root/out/ov5647-builtin/deb"}
 mkdir -p "$output"
 output=$(realpath "$output")
-version="0.3.0+g$(git -C "$root" rev-parse --short HEAD)"
+version="0.4.0+g$(git -C "$root" rev-parse --short HEAD)"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/DEBIAN" "$stage/opt/imx708-tools" "$stage/usr/share/doc/imx708-camera-tools"
 for file in "$root"/tools/imx708/*.py "$root"/tools/imx708/check-lens.sh "$root"/tools/imx708/capture-isp.sh; do
     install -m 0755 "$file" "$stage/opt/imx708-tools/"
 done
+install -m 0644 "$root/tools/imx708/imx708-af.json" "$stage/opt/imx708-tools/"
 install -m 0644 "$root/isp/imx708/README.md" "$stage/usr/share/doc/imx708-camera-tools/README.md"
 if [[ -d "$root/isp/imx708/experiments" ]]; then
     mkdir -p "$stage/usr/share/imx708/isp/experiments"
@@ -28,10 +29,10 @@ Package: imx708-camera-tools
 Version: $version
 Architecture: all
 Maintainer: Jetson camera workspace
-Depends: python3, python3-gi, python3-gst-1.0, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, v4l-utils, gstreamer1.0-tools, gstreamer1.0-x
+Depends: python3, python3-gi, python3-gst-1.0, gir1.2-gtk-3.0, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, v4l-utils, gstreamer1.0-tools, gstreamer1.0-x, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, frei0r-plugins, ffmpeg
 Section: video
 Priority: optional
-Description: IMX708 continuous autofocus, RAW diagnostics and measured ISP tools
+Description: IMX708 live tuning GUI and libcamera-style contrast autofocus
  Live preview uses Python GStreamer bindings; RAW tools use the standard library.
  Fit/score are workstation
  tools requiring NumPy/Pillow. No ISP override is installed automatically.

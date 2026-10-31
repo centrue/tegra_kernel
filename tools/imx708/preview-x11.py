@@ -14,10 +14,12 @@ from pathlib import Path
 import select
 import signal
 import socket
+import subprocess
 import threading
 import time
 
 from af_runtime import CameraLocks, Mailbox, NanoLens, Worker, i420_bytes, luma_bytes
+from live_controls import Settings
 
 
 def shutdown_camera(worker, restore_locks, stop_pipeline):
@@ -30,8 +32,21 @@ def shutdown_camera(worker, restore_locks, stop_pipeline):
         stop_pipeline()
 
 
-def control_command(worker, command):
+def control_command(worker, command, settings=None):
+    if command.startswith('settings '):
+        if settings is None:raise ValueError('live settings unavailable')
+        operation=command[len('settings '):]
+        if operation=='get':result=settings.get()
+        elif operation=='save':result=settings.save()
+        elif operation=='load':result=settings.load()
+        elif operation=='reset':result=settings.reset()
+        elif operation.startswith('set '):result=settings.apply(json.loads(operation[4:]))
+        else:raise ValueError('use settings get/set/save/load/reset')
+        return json.dumps(result)+'\n'
     words = command.split()
+    if len(words)==2 and words[0]=='roi':
+        roi=tuple(float(v) for v in words[1].split(','))
+        return json.dumps(worker.command('roi',roi))+'\n'
     if words == ['status']:
         return 'focus=%d\n' % worker.status()['position']
     if len(words) == 2 and words[0] == 'focus':
@@ -66,6 +81,10 @@ def build_pipeline(args, display):
     return ('nvarguscamerasrc name=camera sensor-id=0 sensor-mode=1 '+ ' '.join(controls)+
             ' ! video/x-raw(memory:NVMM),width=2304,height=1296,format=NV12,framerate=%d/1'%args.fps+
             ' ! nvvidconv ! video/x-raw,format=I420,width=%d,height=%d,colorimetry=bt709'%(args.width,args.height)+
+            ' ! videoconvert ! video/x-raw,format=RGBA'
+            ' ! frei0r-filter-coloradj-rgb name=rgb keep-luma=false'
+            ' ! videoconvert ! video/x-raw,format=I420,colorimetry=bt709'
+            ' ! videobalance name=balance ! gamma name=tone'
             ' ! tee name=t t. ! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! '+sink+
             ' t. ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream'
             ' ! appsink name=analysis emit-signals=true max-buffers=1 drop=true sync=false wait-on-eos=false')
@@ -85,6 +104,7 @@ def main():
     ap.add_argument('--af-range', default='352:928', help='minimum:maximum DAC')
     ap.add_argument('--bus', default='/dev/i2c-6')
     ap.add_argument('--headless', action='store_true')
+    ap.add_argument('--window-id',type=int,help='embed video in an existing X11 window')
     ap.add_argument('--socket', default='/tmp/imx708-preview.sock')
     ap.add_argument('--output', type=Path, default=Path.home()/'imx708-deploy/x11-preview')
     args = ap.parse_args()
@@ -98,7 +118,8 @@ def main():
     try:
         roi = tuple(float(v) for v in args.af_roi.split(','))
         limits = tuple(int(v) for v in args.af_range.split(':'))
-        from autofocus import Controller, measure_luma
+        from libcamera_af import Controller
+        from autofocus import measure_luma
         Controller(args.focus, limits)
         measure_luma(bytes([100])*args.width*args.height, args.width, args.height, roi=roi)
     except (ValueError, TypeError, IndexError) as error:
@@ -117,6 +138,10 @@ def main():
     description = build_pipeline(args, display)
     pipeline = Gst.parse_launch(description)
     camera = pipeline.get_by_name('camera')
+    if args.window_id is not None:
+        sink=pipeline.get_by_name('imx708_preview')
+        GstVideo.VideoOverlay.set_window_handle(sink,args.window_id)
+        GstVideo.VideoOverlay.handle_events(sink,False)
     mailbox = Mailbox()
     log_lock = threading.Lock()
     journal = open(args.output/'autofocus.jsonl', 'a', buffering=1)
@@ -124,7 +149,7 @@ def main():
     def emit(record):
         with log_lock:
             journal.write(json.dumps(record)+'\n')
-        if record.get('event') in ('search','locked','unconfirmed','error'):
+        if record.get('event') in ('search','locked','unconfirmed','error','sample','fine','reverse','settle'):
             print(json.dumps(record), flush=True)
     def save(label, frame, status):
         stem = '%s-%06d' % (label, frame['sequence'])
@@ -133,7 +158,16 @@ def main():
         (args.output/(stem+'.pgm')).write_bytes(header.encode()+luma_bytes(frame))
         (args.output/(stem+'.json')).write_text(json.dumps(dict(status, width=frame['width'],
             height=frame['height'], pts=frame['pts'], sequence=frame['sequence'],
-            captured_at=frame['captured_at']), indent=2)+'\n')
+            captured_at=frame['captured_at'],settings=settings.get() if settings is not None else None), indent=2)+'\n')
+        result=dict(i420=str(args.output/(stem+'.i420')),pgm=str(args.output/(stem+'.pgm')))
+        if label=='snapshot':
+            png=args.output/(stem+'.png')
+            subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-f','rawvideo',
+                '-pixel_format','yuv420p','-video_size','%dx%d'%(frame['width'],frame['height']),
+                '-colorspace','bt709','-color_range','tv','-i',result['i420'],
+                '-frames:v','1','-y',str(png)],check=True,timeout=15)
+            result['png']=str(png)
+        return result
     set_locks = CameraLocks(camera)
     callback_error = []
     def new_sample(sink):
@@ -176,6 +210,7 @@ def main():
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop)
     worker = None
+    settings = None
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     isp = Path('/var/nvidia/nvcam/settings/camera_overrides.isp')
     (args.output/'commands.json').write_text(json.dumps(dict(pipeline=description,
@@ -202,6 +237,12 @@ def main():
             return
         worker = Worker(mailbox,NanoLens(args.bus),set_locks,args.focus,limits,roi,emit,save)
         worker.start()
+        initial=dict(auto_exposure=args.exposure_ns is None and args.gain is None,
+                     exposure_ms=(args.exposure_ns or 10000000)/1e6,
+                     gain=args.gain or 2,isp_gain=args.isp_digital_gain or 1)
+        settings=Settings(camera,pipeline.get_by_name('rgb'),pipeline.get_by_name('balance'),
+                          pipeline.get_by_name('tone'),worker,args.output,args.fps,initial,emit)
+        settings.apply({})
         worker.command('mode',args.autofocus)
         print('READY: IMX708 Nano - X11; AF=%s; control=%s'%(args.autofocus,args.socket),flush=True)
         while running:
@@ -221,12 +262,18 @@ def main():
                 with connection:
                     connection.settimeout(5)
                     try:
-                        command = connection.recv(256).decode().strip()
+                        data=bytearray()
+                        while b'\n' not in data:
+                            chunk=connection.recv(4096)
+                            if not chunk:break
+                            data.extend(chunk)
+                            if len(data)>16384:raise ValueError('command too large')
+                        command = data.decode().strip()
                         if command == 'stop':
                             running = False
                             reply = 'focus=%d\n'%worker.status()['position']
                         else:
-                            reply = control_command(worker,command)
+                            reply = control_command(worker,command,settings)
                         connection.sendall(reply.encode())
                     except (OSError,ValueError,RuntimeError) as error:
                         connection.sendall(('ERROR: %s\n'%error).encode())
