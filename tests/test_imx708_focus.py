@@ -21,5 +21,9 @@ class FocusScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.measure(b'\0'*8, 64, 64)
 
+    def test_explicit_roi_rejects_outside_image(self):
+        with self.assertRaises(ValueError):
+            module.measure(struct.pack('<H',120)*(64*64),64,64,(50,50,40,40))
+
 if __name__ == '__main__':
     unittest.main()

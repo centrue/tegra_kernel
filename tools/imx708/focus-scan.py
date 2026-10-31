@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 
-def measure(raw, width, height):
+def measure(raw, width, height, roi=None):
     if len(raw) != width * height * 2:
         raise ValueError('truncated or padded frame: supply the actual width/stride')
     values = array('H', raw)
@@ -27,6 +27,12 @@ def measure(raw, width, height):
         values.byteswap()
     x0, x1 = width // 4 | 1, 3 * width // 4 - 4
     y0, y1 = (height // 4) & ~1, 3 * height // 4 - 4
+    if roi is not None:
+        x, y, w, h = roi
+        if min(x,y) < 0 or min(w,h) < 12 or x+w>width or y+h>height:
+            raise ValueError('ROI must be within the image and at least 12x12')
+        x0, x1 = x | 1, x+w-4
+        y0, y1 = y & ~1, y+h-4
     total = square = saturated = count = 0
     # Compare samples of the same green plane (RGGB), avoiding Bayer edges.
     for y in range(y0, y1, 4):
@@ -95,6 +101,7 @@ def main():
     ap.add_argument('--bus', default='/dev/i2c-6')
     ap.add_argument('--positions', default='352,384,416,448,480,512,544,576,608,640,672,704')
     ap.add_argument('--fine', action='store_true', help='scan +/-28 in steps of4 around coarse best')
+    ap.add_argument('--roi', help='x,y,width,height of a textured focus target')
     ap.add_argument('--width', type=int, default=2304)
     ap.add_argument('--height', type=int, default=1296)
     ap.add_argument('--mode', type=int, default=1)
@@ -103,6 +110,9 @@ def main():
     ap.add_argument('--gain', type=int, default=64)
     ap.add_argument('--hold', type=int, default=0, help='hold best focus and capture for this many seconds')
     args = ap.parse_args()
+    roi = tuple(int(v) for v in args.roi.split(',')) if args.roi else None
+    if roi is not None and len(roi) != 4:
+        ap.error('ROI needs x,y,width,height')
     positions = [int(v) for v in args.positions.split(',')]
     if not positions or any(p < 0 or p > 1023 for p in positions):
         ap.error('positions must be within 0..1023')
@@ -124,7 +134,7 @@ def main():
                 samples = []
                 for _ in range(3):
                     raw = cap.frame()
-                    samples.append(measure(raw, args.width, args.height))
+                    samples.append(measure(raw, args.width, args.height, roi))
                 record = dict(position=position, dac=dac, samples=samples,
                               score=statistics.median(s['score'] for s in samples))
                 if any(s['mean'] <= 66 or s['saturated_fraction'] > 0.05 for s in samples):
@@ -148,7 +158,7 @@ def main():
             cap.frame()
         (args.output / 'best.raw').write_bytes(cap.frame())
         (args.output / 'best.json').write_text(json.dumps(dict(best=best, command=cap.command,
-              width=args.width,height=args.height,exposure=args.exposure,gain=args.gain), indent=2)+'\n')
+              width=args.width,height=args.height,exposure=args.exposure,gain=args.gain,roi=roi), indent=2)+'\n')
         print('BEST', best['position'], 'score', best['score'], flush=True)
         until = time.monotonic()+args.hold
         while time.monotonic()<until:
